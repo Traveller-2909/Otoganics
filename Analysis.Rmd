@@ -14,18 +14,19 @@ library(tidyverse)
 library(ggplot2)
 library(knitr)
 library(lubridate)
+library(data.table)
+library(ggpubr)
 ```
 
 ```{r divide SIMS data into years, include=FALSE, echo=FALSE, eval=FALSE}
 rm(list = ls())
 
 #Read newest annu file
-annu <- read.delim("Data/2022_annuli_with_rad.txt", header = T, stringsAsFactors = F, sep = "\t", dec = ".")
+annu <- read.delim("Data/2021_annuli_with_rad.txt", header = T, stringsAsFactors = F, sep = "\t", dec = ".")
 
 
 #load SIMS data
-sims <- read.delim("Data/Otolith_data_2022_clean_core_with_distance_um.txt", sep = ";", 
-                       header = T, stringsAsFactors = F)
+sims <- fread("Data/Otolith_data_anadromous_2021_clean_core_with_distance_um.CSV")
 names(sims) <- tolower(names(sims))
 
 #inverse order for distances
@@ -148,7 +149,7 @@ pike_d18O <- pikedata_all%>%
 IDOto <- unique(pike_d18O$ID)
 
 for (i in 1:length(IDOto)) {
-  png(paste0("Figures/Test_plots/", IDOto[i], "_d18O.png"))
+  png(paste0("Figures/Test_plots/", IDOto[i], "_OH.png"))
   plot(pike_d18O[which(pike_d18O$ID == IDOto[i]), "sims_dist",], 
        pike_d18O[which(pike_d18O$ID == IDOto[i]), "OH",], main = "", 
        xlab =  "", ylab = "", xlim = c(0, max(pike_d18O[which(pike_d18O$ID == IDOto[i]), "sims_dist",], na.rm = T)), 
@@ -180,5 +181,104 @@ for (i in 1:length(IDOto)) {
 }
 
 #save annu as table to change the distances
-#write.table(annu, "Sample_2022/annuli_with_rad.txt", sep = "/t", dec = ".", row.names = F)
+fwrite(pike_d18O, "Data/2021_anadromous_data_clean.csv")
 ```
+
+```{r join data together, include=FALSE, eval=FALSE}
+rm(list = ls())
+Oto_2021_ana <- fread("Data/2021_anadromous_data_clean.csv")
+Oto_2021_main <- fread("Data/2021_main_data_clean.csv")
+Oto_2022_main <- fread("Data/2022_data_clean.csv")
+
+Otoall <- rbind(Oto_2021_ana, Oto_2021_main, Oto_2022_main)
+
+fwrite(Otoall, "Data/Oto_all_clean_with_distance_year.csv")
+```
+
+```{r simple exploratory figure, include=FALSE, eval=FALSE}
+#script to form annual means of elemental data for clustering and increment analysis
+rm(list = ls())
+#Read in data
+Otodata <- fread("Data/Oto_all_clean_with_distance_year.csv")
+
+Otodata2 <- Otodata%>%
+  transmute(ID=ID,
+            TL_mm=TL_mm,
+            weight=weight,
+            sex=sex,
+            capt_date=capt_date,
+            age=as.factor(age),
+            capt=area,
+            area=case_when(area=="SB"~"Lagoon",
+                           area=="KB"~"Lagoon",
+                           area=="WB"~"Lagoon",
+                           area=="BEG"~"Lagoon",
+                           area=="KJB"~"Lagoon",
+                           area=="GJB"~"Lagoon",
+                           area=="GB"~"Lagoon",
+                           TRUE~"Tributary"),
+            OH=OH,
+            d18O=d18O,
+            year=as.factor(year),
+            inc_um=inc_um,
+            rad_um=rad_um,
+            dist=sims_dist)
+
+# Plot lifelong increase in d18O --> colder the older
+mypallette <- viridis::viridis(4, direction = 1)
+
+ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
+  geom_line(aes(x = dist, y = OH, color = area), width = 0.5, outlier.size = .5)+
+  geom_smooth(aes(x = dist, y = OH, color=area), size=1 , method = "lm")+
+  scale_x_discrete(limits = factor(1:10),
+                   labels=c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))+
+  ylim(0,0.06)+
+  labs(x="Age (years)",
+       y="OH",
+       color="area of capture")+
+  theme_classic()+
+  scale_color_viridis_d(direction = 1, begin = 0, end = 0.7)+
+  theme(panel.grid.major = element_line(),
+        legend.position = "none",
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        axis.line = element_line(size = .5, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = .5, colour = "black"),
+        axis.text = element_text(size = 10, colour = "black"),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.key.size = unit(.8,"line"))+
+  coord_cartesian(clip = "off")
+
+ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
+  geom_line(aes(x = dist, y = d18O, color = area), width = 0.5, outlier.size = .5)+
+  geom_smooth(aes(x = dist, y = d18O, color=area), size=1 , method = "lm")+
+  scale_x_discrete(limits = factor(1:10),
+                   labels=c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))+
+  labs(x="Age (years)",
+       y="OH",
+       color="area of capture")+
+  theme_classic()+
+  scale_color_viridis_d(direction = 1, begin = 0, end = 0.7)+
+  theme(panel.grid.major = element_line(),
+        legend.position = "none",
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        axis.line = element_line(size = .5, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = .5, colour = "black"),
+        axis.text = element_text(size = 10, colour = "black"),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.key.size = unit(.8,"line"))+
+  coord_cartesian(clip = "off")
+
+
+```
+
+
