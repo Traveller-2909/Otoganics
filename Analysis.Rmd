@@ -1,0 +1,184 @@
+---
+title: "Analysis"
+author: "TR"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(lubridate)
+```
+
+```{r divide SIMS data into years, include=FALSE, echo=FALSE, eval=FALSE}
+rm(list = ls())
+
+#Read newest annu file
+annu <- read.delim("Data/2022_annuli_with_rad.txt", header = T, stringsAsFactors = F, sep = "\t", dec = ".")
+
+
+#load SIMS data
+sims <- read.delim("Data/Otolith_data_2022_clean_core_with_distance_um.txt", sep = ";", 
+                       header = T, stringsAsFactors = F)
+names(sims) <- tolower(names(sims))
+
+#inverse order for distances
+sims <- sims %>% group_by(id)%>%arrange(distance_um, by_group = F)%>%ungroup()%>%
+  arrange(id)
+
+#remove 34
+#sims <- sims[grepl("34", sims$id)==F,]
+
+#select Pilot fish
+sims <- sims%>%filter(id%in%unique(annu$simsID)==TRUE)
+
+#fish list
+PikeDB <- read.delim("C:/Users/timor/Nextcloud2/Boddenhecht/Data/Pike Data/1.pike_data_base_FOR_USERS/1Pike_Latest_Version.txt", 
+                     sep = ";", dec = ".", header = T, stringsAsFactors = F)
+fishdata <- PikeDB%>%
+  transmute(fishID=case_when(Fish_ID=="BH-91050.2"~"BH-91050",
+                             Fish_ID=="BH-51614"&Waterbody=="BAT"~"NA",
+                         TRUE~Fish_ID),
+            cdate=Date,
+            TL_mm = Total_Length_mm,
+            Weight=Weight,
+            sex=Sex,
+            area=Waterbody)
+
+#correct annu placement
+# ID <-"BH-93178"
+# x <- 1
+# y <- 10
+
+# annu[annu$fishID == ID & annu$year == x,]$rad_um <- annu[annu$fishID == ID & annu$year == x,]$rad_um+y
+# annu[annu$fishID == ID & annu$year == x,]$increment_um <- annu[annu$fishID == ID & annu$year == x,]$increment_um+y
+
+#If you need to change the age of a fish
+# annu[annu$fishID == ID & annu$year == 2,]$rad_um <- annu[annu$fishID == ID & annu$year == 2,]$rad_um
+# annu[annu$fishID == ID & annu$year == 2,]$increment_um <- annu[annu$fishID == ID & annu$year == 2,]$increment_um+annu[annu$fishID == ID & annu$year == 1,]$increment_um
+# 
+# annu[annu$fishID == ID & annu$year == 2,]$year <- 1
+# annu[annu$fishID == ID & annu$yearclass == 2,]$yearclass <- 1
+# 
+# annu[annu$fishID == ID & annu$year == 3,]$year <- 2
+# annu[annu$fishID == ID & annu$yearclass == 3,]$yearclass <- 2
+# 
+# annu[annu$fishID == ID & annu$year == 4,]$year <- 3
+# annu[annu$fishID == ID & annu$yearclass == 4,]$yearclass <- 3
+# 
+# annu[annu$fishID == ID & annu$year == 5,]$year <- 4
+# annu[annu$fishID == ID & annu$yearclass == 5,]$yearclass <- 4
+# 
+# annu[annu$fishID == ID & annu$year == 6,]$year <- 5
+# annu[annu$fishID == ID & annu$yearclass == 6,]$yearclass <- 5
+# 
+# annu[annu$fishID == ID & annu$year == 7,]$year <- 6
+# annu[annu$fishID == ID & annu$yearclass == 7,]$yearclass <- 6
+# 
+# annu[annu$fishID == ID,]$age <- 5
+
+#Loop to break into years
+IDpike <- unique(sims$id)
+radID <- unique(annu$year)
+y <- NULL
+yy <- NULL
+
+for (i in 1:length(IDpike)) {
+  for (j in 0:length(annu[which(annu$simsID==IDpike[i]), "year"])) {
+y <- ifelse(sims[which(sims$id==IDpike[i]), "distance_um"]<=
+                      annu[which(annu$simsID==IDpike[i]&annu$year==radID[j]), "rad_um"]&
+              sims[which(sims$id==IDpike[i]), "distance_um"]
+              >=annu[which(annu$simsID==IDpike[i]&annu$year==radID[j-1]), "rad_um"],
+                    annu[which(annu$simsID==IDpike[i]&annu$year==radID[j]), "year"],
+            ifelse(sims[which(sims$id==IDpike[i]), "distance_um"]>
+              max(annu[which(annu$simsID==IDpike[i]), "rad_um"])&
+                radID[j]==max(annu[which(annu$simsID==IDpike[i]), "year"]), 
+            max(annu[which(annu$simsID==IDpike[i]), "year"]),NA))
+yy <- c(yy, na.omit(y))
+  }
+}
+
+##revert the order of distances in "sims", so the yy vector can be pasted correctly
+
+str_sort(unique(sims$id))
+str_sort(unique(annu$simsID))
+
+sims$year <- yy
+
+#prepare join with pike data
+sims2 <- sims%>%
+  group_by(id)%>%
+  ungroup()%>%
+  transmute(simsID = id,
+            OH=oh,
+            d18O = d18o,
+            distance_um = distance_um,
+            year = year)
+
+pikedata <- annu%>%
+  inner_join(sims2, by = c("simsID", "year"))
+
+pikedata_all <- pikedata%>%
+  inner_join(fishdata, by = "fishID")
+
+pike_d18O <- pikedata_all%>%
+  transmute(ID = fishID,
+            TL_mm = TL_mm,
+            weight = Weight,
+            sex = sex,
+            area = area,
+            capt_date = cdate,
+            age = age,
+            cohort = cohort,
+            year = year,
+            inc_um = increment_um,
+            rad_um = rad_um,
+            core = core,
+            OH=OH,
+            d18O = d18O,
+            sims_dist = distance_um)
+
+#OH plots
+IDOto <- unique(pike_d18O$ID)
+
+for (i in 1:length(IDOto)) {
+  png(paste0("Figures/Test_plots/", IDOto[i], "_d18O.png"))
+  plot(pike_d18O[which(pike_d18O$ID == IDOto[i]), "sims_dist",], 
+       pike_d18O[which(pike_d18O$ID == IDOto[i]), "OH",], main = "", 
+       xlab =  "", ylab = "", xlim = c(0, max(pike_d18O[which(pike_d18O$ID == IDOto[i]), "sims_dist",], na.rm = T)), 
+       col.axis = "black", cex.axis = 1.7, type = "b", col = "black", lwd = 2, fg = "black", cex = 1, axes = T, pch = 19)
+  abline(v = c(pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 1), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 2), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 3), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 4), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 5), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 6), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 7), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 8), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 9), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 10), "rad_um"],
+               pike_d18O[which(pike_d18O$ID == IDOto[i]&
+                             pike_d18O$year == 11), "rad_um"])) 
+  title(main = "", ylab = "d18O", cex.lab = 15, col.lab = "black", line = 30)
+  dev.off()  
+}
+
+#save annu as table to change the distances
+#write.table(annu, "Sample_2022/annuli_with_rad.txt", sep = "/t", dec = ".", row.names = F)
+```
