@@ -16,6 +16,14 @@ library(knitr)
 library(lubridate)
 library(data.table)
 library(ggpubr)
+library(lme4)
+library(nlme)
+library(lmerTest)
+library(emmeans)
+library(MuMIn)
+library(visreg)
+library(car)
+library(sjPlot)
 ```
 
 ```{r divide SIMS data into years, include=FALSE, echo=FALSE, eval=FALSE}
@@ -26,7 +34,7 @@ annu <- read.delim("Data/2021_annuli_with_rad.txt", header = T, stringsAsFactors
 
 
 #load SIMS data
-sims <- fread("Data/Otolith_data_anadromous_2021_clean_core_with_distance_um.CSV")
+sims <- fread("Data/Otolith_data_anadromous_2021_clean_core_with_distance_um.csv")
 names(sims) <- tolower(names(sims))
 
 #inverse order for distances
@@ -228,8 +236,8 @@ Otodata2 <- Otodata%>%
 mypallette <- viridis::viridis(4, direction = 1)
 
 ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
-  geom_line(aes(x = dist, y = OH, color = area), width = 0.5, outlier.size = .5)+
-  geom_smooth(aes(x = dist, y = OH, color=area), size=1 , method = "lm")+
+  geom_point(aes(x = dist, y = OH, color = area), width = 0.5, outlier.size = .5)+
+  geom_smooth(aes(x = dist, y = OH, group=area), color = "red", size=1 , method = "lm")+
   scale_x_discrete(limits = factor(1:10),
                    labels=c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))+
   ylim(0,0.06)+
@@ -254,8 +262,8 @@ ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
   coord_cartesian(clip = "off")
 
 ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
-  geom_line(aes(x = dist, y = d18O, color = area), width = 0.5, outlier.size = .5)+
-  geom_smooth(aes(x = dist, y = d18O, color=area), size=1 , method = "lm")+
+  geom_point(aes(x = dist, y = d18O, color = area), width = 0.5, outlier.size = .5)+
+  geom_smooth(aes(x = dist, y = d18O, group=area), color = "red", size=1 , method = "lm")+
   scale_x_discrete(limits = factor(1:10),
                    labels=c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))+
   labs(x="Age (years)",
@@ -277,8 +285,104 @@ ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
         legend.title = element_text(size = 10, face = "bold"),
         legend.key.size = unit(.8,"line"))+
   coord_cartesian(clip = "off")
-
-
 ```
+
+```{r Model start, include=FALSE, eval=FALSE}
+rm(list = ls())
+
+Otos <- fread("Data/Oto_all_clean_with_distance_year.csv")
+
+head(Otos)
+tail(Otos)
+str(Otos)
+
+Otos2 <- Otos%>%
+  transmute(ID=ID,
+            TL_mm=as.numeric(TL_mm),
+            weight=as.numeric(weight),
+            sex=as.factor(sex),
+            area=as.factor(area),
+            capt_date=capt_date,
+            age=as.factor(age),
+            cohort=as.factor(cohort),
+            year=as.numeric(year),
+            inc_um=inc_um,
+            rad_um=rad_um,
+            core=core,
+            OH=as.numeric(scale(OH)),
+            d18O=as.numeric(scale(d18O)),
+            sims_dist=sims_dist)
+
+Otos2[Otos2$ID=="BH-90307",]$sex <- "f"
+
+fwrite(Otos2, "Data/Otodata_model.csv")
+```
+
+```{r model exploration, include=FALSE, eval=FALSE}
+par(mfrow=c(1,2))
+dotchart(Otos2$OH, color = Otos2$year, main = "Color = Age")
+dotchart(Otos2$OH, color = Otos2$sex, main = "Color = Sex")
+dotchart(Otos2$OH, color = Otos2$area, main = "Color = Area")
+
+par(mfrow=c(2,2))
+boxplot(Otos2$OH~Otos2$year, ylab ="OH value", xlab = "Age")
+boxplot(Otos2$OH~Otos2$area, ylab ="OH value", xlab = "Area")
+plot(Otos2$OH~Otos2$d18O, ylab ="OH", xlab = "d18O")
+plot(Otos2$OH~Otos2$inc_um, ylab ="OH", xlab = "growth increment")
+plot(0, xaxt = 'n', yaxt = 'n', bty = 'n', pch = '', ylab = '', xlab = '')
+
+par(mfrow = c(2,2))
+hist(Otos2$inc_um, main = "", xlab = "Increment (um)")
+hist(Otos2$OH, main = "", xlab = "OH value")
+hist(Otos2$d18O, main = "", xlab = "d18O value")
+plot(0, xaxt = 'n', yaxt = 'n', bty = 'n', pch = '', ylab = '', xlab = '')
+```
+
+## Initial model
+$$\delta^{18}O \sim OH+Distance+increment+area+Sex+(1|ID)$$
+
+```{r initial model, include=FALSE, eval=FALSE}
+Otomodel.1 <- lmer(d18O~OH+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+
+summary(Otomodel.1)
+```
+
+```{r variance inflation factors, include=FALSE, eval=FALSE}
+Otomodel.1 <- lmer(d18O~OH+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+
+Oto.vif <- vif(Otomodel.1)
+
+barplot(Oto.vif[,3], main = "VIF values", horiz = F, col = "darkgreen", ylim = c(0,6),
+        las = 2)
+abline(h = 5, lwd = 3, lty = 2, col="red")
+```
+
+```{r test effects, include=FALSE, eval=FALSE}
+#Test random effect of ID
+rand(Otomodel.1)
+
+#Test main effects
+No_OH <- update(Otomodel.1, ~.-OH)
+anova(Otomodel.1, No_OH)
+
+No_dist <- update(Otomodel.1, ~.-sims_dist)
+anova(Otomodel.1, No_dist)
+
+No_inc <- update(Otomodel.1, ~.-inc_um)
+anova(Otomodel.1, No_inc)
+
+No_area <- update(Otomodel.1, ~.-area)
+anova(Otomodel.1, No_area)
+
+No_sex <- update(Otomodel.1, ~.-sex)
+anova(Otomodel.1, No_sex)
+
+tab_model(Otomodel.1, show.fstat = T, show.loglik = T, digits.re = 20, show.re.var = T)
+```
+
+
+
+
+
 
 
