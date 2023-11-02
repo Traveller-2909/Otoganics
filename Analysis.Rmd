@@ -24,6 +24,7 @@ library(MuMIn)
 library(visreg)
 library(car)
 library(sjPlot)
+library(zoo)
 ```
 
 ```{r divide SIMS data into years, include=FALSE, echo=FALSE, eval=FALSE}
@@ -235,14 +236,12 @@ Otodata2 <- Otodata%>%
 # Plot lifelong increase in d18O --> colder the older
 mypallette <- viridis::viridis(4, direction = 1)
 
-ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
-  geom_point(aes(x = dist, y = OH, color = area), width = 0.5, outlier.size = .5)+
-  geom_smooth(aes(x = dist, y = OH, group=area), color = "red", size=1 , method = "lm")+
-  scale_x_discrete(limits = factor(1:10),
-                   labels=c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))+
-  ylim(0,0.06)+
-  labs(x="Age (years)",
-       y="OH",
+Dist <- ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
+  geom_point(aes(x = dist, y = OH, color = area), size = 0.05)+
+  geom_smooth(aes(x = dist, y = OH, color=area), size=1 , method = "lm")+
+  ylim(0.02,0.06)+
+  labs(x=expression("distance to core"~(mu*"m")),
+       y=expression("OH/"^16*"O count ratio"),
        color="area of capture")+
   theme_classic()+
   scale_color_viridis_d(direction = 1, begin = 0, end = 0.7)+
@@ -261,13 +260,12 @@ ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
         legend.key.size = unit(.8,"line"))+
   coord_cartesian(clip = "off")
 
-ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
-  geom_point(aes(x = dist, y = d18O, color = area), width = 0.5, outlier.size = .5)+
-  geom_smooth(aes(x = dist, y = d18O, group=area), color = "red", size=1 , method = "lm")+
-  scale_x_discrete(limits = factor(1:10),
-                   labels=c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"))+
-  labs(x="Age (years)",
-       y="OH",
+d18O <- ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
+  geom_point(aes(x = OH, y = d18O, color = area), size = 0.05)+
+  geom_smooth(aes(x = OH, y = d18O, color=area),  size=1 , method = "lm")+
+  lims(x = c(0.02,0.06))+
+  labs(x=expression("OH/"^16*"O count ratio"),
+       y=expression(delta^18*"O"~("\u2030 VPDB")),
        color="area of capture")+
   theme_classic()+
   scale_color_viridis_d(direction = 1, begin = 0, end = 0.7)+
@@ -285,6 +283,10 @@ ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
         legend.title = element_text(size = 10, face = "bold"),
         legend.key.size = unit(.8,"line"))+
   coord_cartesian(clip = "off")
+
+Allplot <- ggarrange(Dist, d18O, common.legend = T)
+
+ggsave("Figures/OH-exploratory-figure.png", Allplot, width = 15, height = 10, units = "cm", dpi = 600, bg = "white")
 ```
 
 ```{r Model start, include=FALSE, eval=FALSE}
@@ -300,8 +302,16 @@ Otos2 <- Otos%>%
   transmute(ID=ID,
             TL_mm=as.numeric(TL_mm),
             weight=as.numeric(weight),
-            sex=as.factor(sex),
-            area=as.factor(area),
+            sex=case_when(ID == "BH-90307"~"f",
+                          TRUE ~ sex),
+            area=case_when(area=="SB"~"Lagoon",
+                           area=="KB"~"Lagoon",
+                           area=="WB"~"Lagoon",
+                           area=="BEG"~"Lagoon",
+                           area=="KJB"~"Lagoon",
+                           area=="GJB"~"Lagoon",
+                           area=="GB"~"Lagoon",
+                           TRUE~"Tributary"),
             capt_date=capt_date,
             age=as.factor(age),
             cohort=as.factor(cohort),
@@ -311,9 +321,9 @@ Otos2 <- Otos%>%
             core=core,
             OH=as.numeric(scale(OH)),
             d18O=as.numeric(scale(d18O)),
-            sims_dist=sims_dist)
-
-Otos2[Otos2$ID=="BH-90307",]$sex <- "f"
+            sims_dist=sims_dist)%>%
+  drop_na(d18O,OH)%>%
+  distinct()
 
 fwrite(Otos2, "Data/Otodata_model.csv")
 ```
@@ -352,9 +362,10 @@ Otomodel.1 <- lmer(d18O~OH+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Ot
 
 Oto.vif <- vif(Otomodel.1)
 
-barplot(Oto.vif[,3], main = "VIF values", horiz = F, col = "darkgreen", ylim = c(0,6),
-        las = 2)
+png(filename = "Figures/supplement/VIF-factors.png", width = 5000, height = 2500, res = 600)
+barplot(Oto.vif[,3], main = "VIF values", horiz = F, col = "darkgreen", ylim = c(0,6), las = 2)
 abline(h = 5, lwd = 3, lty = 2, col="red")
+dev.off()
 ```
 
 ```{r test effects, include=FALSE, eval=FALSE}
@@ -379,6 +390,457 @@ anova(Otomodel.1, No_sex)
 
 tab_model(Otomodel.1, show.fstat = T, show.loglik = T, digits.re = 20, show.re.var = T)
 ```
+
+```{r model validation, include=FALSE, eval=FALSE}
+Otos2$resid <- resid(Otomodel.1)
+
+png(filename = "Figures/supplement/fitted-vs-resid_plot.png", width = 5000, height = 2500, res = 600)
+plot(Otomodel.1, xlab = "Fitted", ylab = "Residuals")
+dev.off()
+
+png(filename = "Figures/supplement/resid_hist.png", width = 5000, height = 2500, res = 600)
+hist(Otos2$resid, main = "", xlab = "Residuals")
+dev.off()
+
+png(filename = "Figures/supplement/resid_qqnorm.png", width = 5000, height = 2500, res = 600)
+qqnorm(resid(Otomodel.1))
+qqline(resid(Otomodel.1))
+dev.off()
+
+png(filename = "Figures/supplement/resid_params.png", width = 5000, height = 2500, res = 600)
+par(mfrow=c(2,3))
+plot(Otos2$resid~Otos2$OH, ylab = "Residuals", xlab = "OH", las = 2)
+plot(Otos2$resid~Otos2$sims_dist, ylab = "Residuals", xlab = "distance to core (um)", las = 2)
+plot(Otos2$resid~Otos2$inc_um, ylab = "Residuals", xlab = "increment (um)", las = 2)
+plot(Otos2$resid~as.factor(Otos2$area), ylab = "Residuals", xlab = "capture area")
+plot(Otos2$resid~as.factor(Otos2$sex), ylab = "Residuals", xlab = "capture area")
+dev.off()
+```
+
+```{r calculate set of means for temperature reconstruction, include=FALSE, eval=FALSE}
+d18OW <- fread("Data/Water_isotopes_Bodden.txt")
+
+d18OW2 <- d18OW%>%
+  transmute(waterbody = waterbody,
+            area = case_when(waterbody == "Uck"~"Tributary",
+                             waterbody == "Peene"~"Tributary",
+                             waterbody == "AW"~"P",
+                             waterbody == "Ryck"~"Tributary",
+                             waterbody == "Beek"~"Tributary",
+                             waterbody == "GJB"~"NRB",
+                             waterbody == "KJB"~"NRB",
+                             waterbody == "BEG"~"NRB",
+                             waterbody == "WB"~"NRB",
+                             waterbody == "VB"~"WRB",
+                             waterbody == "SB"~"WRB",
+                             waterbody == "KB"~"WRB",
+                             waterbody == "GW"~"WRB",
+                             waterbody == "BAT"~"DZB",
+                             waterbody == "Barthe"~"Tributary",
+                             waterbody == "BoB"~"DZB",
+                             waterbody == "SaB"~"DZB",
+                             waterbody == "Templer creek"~"Tributary",
+                             waterbody == "Recknitz"~"Tributary",
+                             waterbody == "ZS"~"DZB",
+                             TRUE~waterbody),
+            coast.FW = `coast/FW`,
+            ID = ID,
+            Lat = Lat,
+            Long = Long,
+            date = Date,
+            Sal_PSU = Sal_PSU,
+            WT_C = WT_C,
+            d18O = d18O,
+            SD_d18O = SD_d18O,
+            type = type)
+
+d18Osum <- d18OW2%>%
+  group_by(area)%>%
+  summarise(area=area,
+            Sal_PSU=mean(Sal_PSU, na.rm=T),
+            WT_C=mean(WT_C, na.rm=T),
+            d18O=mean(d18O, na.rm=T),
+            Sdd18O=mean(SD_d18O, na.rm=T))%>%
+  distinct()
+
+fwrite(d18Osum, "Data/Mean_d18O_areas.csv")
+```
+
+```{r prediction of otolith d18O, include=FALSE, eval=FALSE}
+rm(list = ls())
+
+#Get isotope data
+Isotopes <- fread("Data/Water_isotopes_Bodden.txt")
+
+LUNGdata <- read.delim(file = "Data/LUNGdata_complete.txt", sep = "\t", header = T, stringsAsFactors = F)
+LUNGdata_Bodden <- LUNGdata%>%
+  filter(type=="Coast")%>%
+  mutate(area=case_when(waterbody=="Kubitzer Bodden"~"WRB",
+                        waterbody=="Greifswalder Bodden"~"GB",
+                        waterbody=="Daenische Wiek"~"GB",
+                        waterbody=="Andershofer Bucht"~"GB",
+                        waterbody=="Vitter Bodden"~"WRB",
+                        waterbody=="Rassower Strom"~"NRB",
+                        waterbody=="Breetzer Bodden"~"NRB",
+                        waterbody=="Gr. Jasmunder Bodden"~"NRB",
+                        waterbody=="Kl. Jasmunder Bodden"~"NRB",
+                        waterbody=="Schaproder Bodden"~"WRB",
+                        TRUE~"NA"))%>%
+  filter(area!="NA")
+
+Lungdata_fresh <- LUNGdata%>%
+  filter(type=="Freshwater")%>%
+  mutate(area=case_when(waterbody=="Barthe"~"Tributary",
+                        waterbody=="Westziese"~"Tributary",
+                        waterbody=="Ostziese"~"Tributary",
+                        waterbody=="Sehrower Bach"~"Tributary",
+                        waterbody=="Badendycksgraben"~"Tributary",
+                        TRUE~"NA"))
+
+Bodden_mean <- LUNGdata_Bodden%>%
+  group_by(area, year, month)%>%
+  dplyr::summarise(area=area,
+                   year=year,
+                   type=type,
+                   SAL=mean(SAL, na.rm=T),
+                   WT=mean(WT, na.rm=T))%>%
+  distinct()
+
+Fresh_mean <- Lungdata_fresh%>%
+  filter(area!="NA")%>%
+  group_by(area, year, month)%>%
+  dplyr::summarise(area=area,
+                   year=year,
+                   type=type,
+                   SAL=mean(SAL, na.rm=T),
+                   WT=mean(WT, na.rm=T))%>%
+  distinct()
+
+Isotopes2 <- Isotopes%>%
+  transmute(waterbody=waterbody,
+            month=month(parse_date_time(Date, "dmy")),
+            area=case_when(waterbody=="Uck"~"NA",
+                           waterbody=="SH"~"SH",
+                           waterbody=="Peene"~"Tributary",
+                           waterbody=="P"~"P",
+                           waterbody=="AW"~"P",
+                           waterbody=="GB"~"GB",
+                           waterbody=="Ryck"~"NA",
+                           waterbody=="S"~"WRB",
+                           waterbody=="Beek"~"NA",
+                           waterbody=="GJB"~"NRB",
+                           waterbody=="KJB"~"NRB",
+                           waterbody=="Baltic"~"Baltic",
+                           waterbody=="BEG"~"NRB",
+                           waterbody=="WB"~"NRB",
+                           waterbody=="VB"~"WRB",
+                           waterbody=="SB"~"WRB",
+                           waterbody=="KB"~"WRB",
+                           waterbody=="GW"~"DZB",
+                           waterbody=="BAT"~"DZB",
+                           waterbody=="Barthe"~"Tributary",
+                           waterbody=="BoB"~"DZB",
+                           waterbody=="SaB"~"SaB",
+                           waterbody=="Templer creek"~"NA",
+                           waterbody=="Recknitz"~"NA",
+                           waterbody=="ZS"~"ZS"),
+            coast.FW=`coast/FW`,
+            d18O=d18O,
+            Sal=Sal_PSU,
+            WT=WT_C)%>%
+  drop_na(d18O)
+
+Isotopes_mean <- Isotopes2%>%
+  group_by(month, area)%>%
+  dplyr::summarise(month=month,
+                   area=area,
+                   coast.FW=coast.FW,
+                   d18O=mean(d18O, na.rm=T),
+                   Sal=mean(Sal, na.rm=T),
+                   WT=mean(WT, na.rm=T))%>%
+  distinct()
+
+subset.WRB <- subset(Isotopes_mean, area=="WRB")
+subset.fresh <- subset(Isotopes_mean, area=="ZS")
+
+
+#data frame for merging
+df <- data.frame(month = 1:12)
+
+#get data for NRB
+subset.NRB <- subset(Isotopes_mean, area=="NRB")
+#complete months
+subset.NRB <- merge(df, subset.NRB, by = "month", all.x = T)
+#interpolate between months
+subset.NRB$d18O <- na.approx(subset.NRB$d18O, na.rm=F)
+
+#apply linear correction of missing values based on seasonal offset from timeseries
+subset.NRB$d18O[1:2] <- subset.WRB$d18O[1:2]/subset.WRB$d18O[3]*subset.NRB$d18O[3]
+subset.NRB$d18O[8:12] <- subset.WRB$d18O[8:12]/subset.WRB$d18O[7]*subset.NRB$d18O[7]
+subset.NRB$area <- "NRB"
+
+#same for GB area
+subset.GB <- subset(Isotopes_mean, area=="GB")
+subset.GB <- merge(df, subset.GB, by="month", all.x = T)
+subset.GB$d18O <- na.approx(subset.GB$d18O, na.rm=F)
+
+#apply linear correction of missing values based on seasonal offset from timeseries
+subset.GB$d18O[1:2] <- subset.WRB$d18O[1:2]/subset.WRB$d18O[3]*subset.GB$d18O[3]
+subset.GB$d18O[8:12] <- subset.WRB$d18O[8:12]/subset.WRB$d18O[7]*subset.GB$d18O[7]
+subset.GB$area <- "GB"
+
+#tributaries
+subset.tributary <- subset(Isotopes_mean, area == "Tributary")
+subset.tributary <- merge(df, subset.tributary, by="month", all.x = T)
+subset.tributary$d18O <- na.approx(subset.tributary$d18O, na.rm=F)
+
+#apply linear correction of missing values based on seasonal offset from timeseries
+subset.tributary$d18O[1:2] <- subset.fresh$d18O[1:2]/subset.fresh$d18O[3]*subset.tributary$d18O[3]
+subset.tributary$d18O[8:12] <- subset.fresh$d18O[8:12]/subset.fresh$d18O[7]*subset.tributary$d18O[7]
+subset.tributary$area <- "Tributary"
+
+Bodden_iso <- rbind(subset.GB[,c(1,2,4)],subset.WRB[,c(1,2,4)],subset.NRB[,c(1,2,4)])
+
+Fresh_iso <- subset.tributary[,c(1,2,4)]
+
+Bodden_iso_temp <- Bodden_mean%>%left_join(Bodden_iso, by=c("month", "area"))
+Fresh_iso_temp <- Fresh_mean%>%left_join(Fresh_iso, by=c("month", "area"))
+
+
+#Fractionation equation for otolith aragonite
+Patterson <- function(month, WT, d18O){
+  alpha <- exp((18.56*1000*((WT+273.15)^-1)-33.49)/1000)
+  0.97001*(alpha*(1000+d18O)-1000)-29.99
+}
+
+Geffen <- function(month, WT, d18O){
+  alpha <- exp((15.99*1000*((WT+273.15)^-1)-24.25)/1000)
+  0.97001*(alpha*(1000+d18O)-1000)-29.99
+}
+
+#calculate theoretical otolith d18O values with prediction intervals
+Bodden_iso_oto <- Bodden_iso_temp%>%
+  mutate(d18O.oto.Patterson = Patterson(month,WT,d18O),
+         d18O.oto.Geffen = Geffen(month,WT,d18O),
+         date=as.Date(paste0(year,"-",month,"-","01")))%>%
+  group_by(month, year)%>%
+  mutate(upper.Pat=max(d18O.oto.Patterson),
+         lower.Pat=min(d18O.oto.Patterson),
+         upper.Gef=max(d18O.oto.Geffen),
+         lower.Gef=min(d18O.oto.Geffen))
+
+Fresh_iso_oto <- Fresh_iso_temp%>%
+  mutate(d18O.oto.Patterson = Patterson(month,WT,d18O),
+         d18O.oto.Geffen = Geffen(month,WT,d18O),
+         date=as.Date(paste0(year,"-",month,"-","01")))%>%
+  group_by(month)%>%
+  mutate(upper.Pat=max(d18O.oto.Patterson),
+         lower.Pat=min(d18O.oto.Patterson),
+         upper.Gef=max(d18O.oto.Geffen),
+         lower.Gef=min(d18O.oto.Geffen))
+
+fwrite(Bodden_iso_oto, "Data/Bodden_iso_prediction.csv")
+fwrite(Fresh_iso_oto, "Data/Tributary_iso_prediction.csv")
+```
+
+```{r apply correction, include=FALSE, eval=FALSE}
+rm(list = ls())
+
+Otos <- fread("Data/Oto_all_clean_with_distance_year.csv")
+
+Otos2 <- Otos%>%
+  filter(area != "KD")%>%
+  transmute(ID=ID,
+            TL_mm=as.numeric(TL_mm),
+            weight=as.numeric(weight),
+            sex=case_when(ID == "BH-90307"~"f",
+                          TRUE ~ sex),
+            area=as.factor(case_when(area == "Sehrowbach"~"Tributary",
+                                     area == "Ziese"~"Tributary",
+                                     area == "NHG"~"Tributary",
+                                     area == "Peene"~"Tributary",
+                                     area == "Barthe"~"Tributary",
+                                     area == "KB"~"Lagoon",
+                                     area == "Badendycksgraben"~"Tributary",
+                                     area == "SB"~"Lagoon",
+                                     area == "WB"~"Lagoon",
+                                     area == "BEG"~"Lagoon",
+                                     area == "KJB"~"Lagoon",
+                                     area == "GJB"~"Lagoon",
+                                     area == "GB"~"Lagoon",
+                                     TRUE~area)),
+            age=as.factor(age),
+            cohort=cohort,
+            year=as.numeric(year),
+            inc_um=inc_um,
+            OH=OH,
+            d18O_Oto=d18O,
+            OH.scale=as.numeric(scale(OH)),
+            d18O_Oto.scale=as.numeric(scale(d18O)),
+            sims_dist=sims_dist)%>%
+  drop_na(d18O_Oto,OH)%>%
+  distinct()
+
+Otomodel.1 <- lmer(d18O_Oto.scale~OH.scale+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+
+coefficients <- fixef(Otomodel.1)
+
+intercept_OH <- coefficients["OH.scale"]
+
+Pike_corrected <- Otos2%>%
+  transmute(ID = ID,
+            TL_mm = TL_mm,
+            weight = weight,
+            sex = sex,
+            area = area,
+            age = age,
+            cohort = cohort,
+            year = year,
+            OH = OH,
+            d18O_oto = d18O_Oto,
+            d18O_oto_cor = d18O_Oto-OH.scale*intercept_OH*sd(d18O_Oto),
+            sims_dist = sims_dist)
+
+fwrite(Pike_corrected, "Data/Oto_corrected.csv")
+```
+
+```{r d18O modelling figures, include=FALSE, eval=FALSE}
+rm(list = ls())
+
+#Read in data
+Pike_corrected <- fread("Data/Oto_corrected.csv")
+
+#Plot temperature data
+raw_vs_cor <- ggplot(Pike_corrected)+
+  geom_smooth(aes(sims_dist, d18O_oto, color = area, linetype = "raw"), method = "gam")+
+  geom_smooth(aes(sims_dist, d18O_oto_cor, color = area, linetype = "correction"), method = "gam")+
+  labs(x = expression("distance from otolith core"~(mu*"m")),
+       y = expression(delta^18~"O"~("\u2030 VPDB")),
+       color = "area of capture",
+       linetype = "correction")+
+  theme_classic()+
+  scale_color_viridis_d(direction = 1, begin = 0, end = 0.7)+
+  scale_linetype_manual(breaks = c("raw", "correction"),
+                        values = c("solid", "dotted"),
+                        guide = guide_legend(override.aes = list(color = "black")))+
+  scale_shape_manual(breaks = c("raw", "correction"),
+                        values = c(1,2),
+                        guide = guide_legend(override.aes = list(color = "black")))+
+  theme(panel.grid.major = element_line(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        axis.line = element_line(size = .5, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = .5, colour = "black"),
+        axis.text = element_text(size = 10, colour = "black"),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.key.size = unit(1,"line"))
+
+ggsave("Figures/raw_vs_correction.png", raw_vs_cor, width = 15, height = 12, units = "cm", dpi = 600, bg = "white")
+```
+
+```{r d18O correction single fish, include=FALSE, eval=FALSE}
+rm(list = ls())
+
+#Read in data
+Pike_corrected <- fread("Data/Oto_corrected.csv")
+
+BH01855 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01855",])+
+  geom_point(aes(sims_dist, d18O_oto, color = "raw", shape = "raw"))+
+  geom_line(aes(sims_dist, d18O_oto, color = "raw"))+
+  geom_point(aes(sims_dist, d18O_oto_cor, color = "correction", shape = "correction"), linetype = "dotted")+
+  geom_line(aes(sims_dist, d18O_oto_cor, color = "correction"), linetype = "dotted")+
+  scale_color_manual(breaks = c("raw", "correction"),
+                     values = viridis(2, begin = 0, end = 0.5))+
+  scale_shape_manual(breaks = c("raw", "correction"),
+                     values = c(18,19))+
+  labs(x = expression("distance from otolith core"~(mu*"m")),
+       y = expression(delta^18~"O"~("\u2030 VPDB")),
+       color = "correction",
+       shape = "correction")+
+  theme_bw()+
+  theme(panel.grid.major = element_line(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        axis.line = element_line(size = .5, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = .5, colour = "black"),
+        axis.text = element_text(size = 10, colour = "black"),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.key.size = unit(1,"line"))
+
+BH01588 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01588",])+
+  geom_point(aes(sims_dist, d18O_oto, color = "raw", shape = "raw"))+
+  geom_line(aes(sims_dist, d18O_oto, color = "raw"))+
+  geom_point(aes(sims_dist, d18O_oto_cor, color = "correction", shape = "correction"), linetype = "dotted")+
+  geom_line(aes(sims_dist, d18O_oto_cor, color = "correction"), linetype = "dotted")+
+  scale_color_manual(breaks = c("raw", "correction"),
+                     values = viridis(2, begin = 0, end = 0.5))+
+  scale_shape_manual(breaks = c("raw", "correction"),
+                     values = c(18,19))+
+  labs(x = expression("distance from otolith core"~(mu*"m")),
+       y = expression(delta^18~"O"~("\u2030 VPDB")),
+       color = "correction",
+       shape = "correction")+
+  theme_bw()+
+  theme(panel.grid.major = element_line(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        axis.line = element_line(size = .5, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = .5, colour = "black"),
+        axis.text = element_text(size = 10, colour = "black"),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.key.size = unit(1,"line"))
+
+BH01722 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01722",])+
+  geom_point(aes(sims_dist, d18O_oto, color = "raw", shape = "raw"))+
+  geom_line(aes(sims_dist, d18O_oto, color = "raw"))+
+  geom_point(aes(sims_dist, d18O_oto_cor, color = "correction", shape = "correction"), linetype = "dotted")+
+  geom_line(aes(sims_dist, d18O_oto_cor, color = "correction"), linetype = "dotted")+
+  scale_color_manual(breaks = c("raw", "correction"),
+                     values = viridis(2, begin = 0, end = 0.5))+
+  scale_shape_manual(breaks = c("raw", "correction"),
+                     values = c(18,19))+
+  labs(x = expression("distance from otolith core"~(mu*"m")),
+       y = expression(delta^18~"O"~("\u2030 VPDB")),
+       color = "correction",
+       shape = "correction")+
+  theme_bw()+
+  theme(panel.grid.major = element_line(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        axis.line = element_line(size = .5, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = .5, colour = "black"),
+        axis.text = element_text(size = 10, colour = "black"),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.key.size = unit(1,"line"))
+
+Allplot <- ggarrange(BH01855, BH01588, BH01722, common.legend = T, nrow = 3)
+
+ggsave("Figures/raw-vs-corrected_ind.png", width = 15, height = 30, units = "cm", dpi = 600, bg = "white")
+```
+
+```{r model validation, include=FALSE, eval=FALSE}
+plot(Otomodel.1, xlab = "Fitted", ylab = "Residuals")
+
+qqnorm(resid(Otomodel.1))
+qqline(resid(Otomodel.1))
+```
+
 
 
 
