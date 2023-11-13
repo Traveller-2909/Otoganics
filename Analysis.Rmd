@@ -25,6 +25,7 @@ library(visreg)
 library(car)
 library(sjPlot)
 library(zoo)
+library(viridis)
 ```
 
 ```{r divide SIMS data into years, include=FALSE, echo=FALSE, eval=FALSE}
@@ -204,89 +205,88 @@ Otoall <- rbind(Oto_2021_ana, Oto_2021_main, Oto_2022_main)
 fwrite(Otoall, "Data/Oto_all_clean_with_distance_year.csv")
 ```
 
-```{r simple exploratory figure, include=FALSE, eval=FALSE}
-#script to form annual means of elemental data for clustering and increment analysis
+```{r join data to Sr, include=FALSE, eval=FALSE}
 rm(list = ls())
-#Read in data
-Otodata <- fread("Data/Oto_all_clean_with_distance_year.csv")
 
-Otodata2 <- Otodata%>%
+Oto_d18O <- fread("Data/Oto_all_clean_with_distance_year.csv")
+
+LA <- fread("Data/Pike-LA-ICPMS-years_whole-sample_with-TL.txt")
+
+LA_clean <- LA%>%
+  filter(LA_dist>=50)%>%
+  filter(comment=="OK")%>%
+  transmute(ID = fishID,
+            age=age,
+            capt = area,
+            area = case_when(area %in% "Peene" ~ "Tributary",
+                             area %in% "Barthe" ~ "Tributary",
+                             area %in% "NHG" ~ "Tributary",
+                             area %in% "Sehrowbach" ~ "Tributary",
+                             area %in% "Bandycksgraben" ~ "Tributary",
+                             area %in% "Ziese" ~ "Tributary",
+                             area %in% "KB" ~ "Lagoon",
+                             area %in% "SB" ~ "Lagoon",
+                             area %in% "WB" ~ "Lagoon",
+                             area %in% "BEG" ~ "Lagoon", 
+                             area %in% "KJB" ~ "Lagoon",
+                             area %in% "GJB" ~ "Lagoon",
+                             area %in% "GB" ~ "Lagoon",
+                             area %in% "KD" ~ "Lake",
+                             TRUE ~ "NA"),
+            Sr = Sr,
+            Na = Na,
+            Mg = Mg,
+            Ba = Ba,
+            Mn = Mn,
+            LA_dist = LA_dist,
+            lifeyear=lifeyear)
+
+#Smooth trace element data to remove noise
+LA_smooth <- LA_clean%>%group_by(ID)%>%
   transmute(ID=ID,
-            TL_mm=TL_mm,
-            weight=weight,
-            sex=sex,
-            capt_date=capt_date,
-            age=as.factor(age),
-            capt=area,
-            area=case_when(area=="SB"~"Lagoon",
-                           area=="KB"~"Lagoon",
-                           area=="WB"~"Lagoon",
-                           area=="BEG"~"Lagoon",
-                           area=="KJB"~"Lagoon",
-                           area=="GJB"~"Lagoon",
-                           area=="GB"~"Lagoon",
-                           TRUE~"Tributary"),
-            OH=OH,
-            d18O=d18O,
-            year=as.factor(year),
-            inc_um=inc_um,
-            rad_um=rad_um,
-            dist=sims_dist)
+            age=age,
+            capt=capt,
+            area=area,
+            Sr=as.numeric(zoo::rollmean(Sr, k=9, fill=NA, align = "left")),
+            Na=as.numeric(zoo::rollmean(Na, k=9, fill=NA, align = "left")),
+            Mg=as.numeric(zoo::rollmean(Mg, k=9, fill=NA, align = "left")),
+            Ba=as.numeric(zoo::rollmean(Ba, k=9, fill=NA, align = "left")),
+            Mn=as.numeric(zoo::rollmean(Mn, k=9, fill=NA, align = "left")),
+            LA_dist=as.numeric(LA_dist),
+            lifeyear=lifeyear)
 
-# Plot lifelong increase in d18O --> colder the older
-mypallette <- viridis::viridis(4, direction = 1)
+#Order data sets for joining
+d18O_clean <- Oto_d18O[order(Oto_d18O$ID),]
+LA_smooth <- LA_smooth[order(LA_smooth$ID),]
 
-Dist <- ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
-  geom_point(aes(x = dist, y = OH, color = area), size = 0.05)+
-  geom_smooth(aes(x = dist, y = OH, color=area), size=1 , method = "lm")+
-  ylim(0.02,0.06)+
-  labs(x=expression("distance to core"~(mu*"m")),
-       y=expression("OH/"^16*"O count ratio"),
-       color="area of capture")+
-  theme_classic()+
-  scale_color_viridis_d(direction = 1, begin = 0, end = 0.7)+
-  theme(panel.grid.major = element_line(),
-        legend.position = "none",
-        legend.background = element_blank(),
-        legend.box.background = element_blank(),
-        axis.line = element_line(size = .5, colour = "black", linetype = 1),
-        axis.ticks = element_line(size = .5, colour = "black"),
-        axis.text = element_text(size = 10, colour = "black"),
-        axis.title.x = element_text(size = 10, face = "bold"),
-        axis.title.y = element_text(size = 10, face = "bold",
-                                    margin = margin(r=15)),
-        legend.text = element_text(size = 10),
-        legend.title = element_text(size = 10, face = "bold"),
-        legend.key.size = unit(.8,"line"))+
-  coord_cartesian(clip = "off")
+#Convert to data frame, so approx (), as approx() behaves weird on data tables
+d18O_clean <- as.data.frame(d18O_clean)
+LA_smooth <- as.data.frame(LA_smooth)
 
-d18O <- ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
-  geom_point(aes(x = OH, y = d18O, color = area), size = 0.05)+
-  geom_smooth(aes(x = OH, y = d18O, color=area),  size=1 , method = "lm")+
-  lims(x = c(0.02,0.06))+
-  labs(x=expression("OH/"^16*"O count ratio"),
-       y=expression(delta^18*"O"~("\u2030 VPDB")),
-       color="area of capture")+
-  theme_classic()+
-  scale_color_viridis_d(direction = 1, begin = 0, end = 0.7)+
-  theme(panel.grid.major = element_line(),
-        legend.position = "none",
-        legend.background = element_blank(),
-        legend.box.background = element_blank(),
-        axis.line = element_line(size = .5, colour = "black", linetype = 1),
-        axis.ticks = element_line(size = .5, colour = "black"),
-        axis.text = element_text(size = 10, colour = "black"),
-        axis.title.x = element_text(size = 10, face = "bold"),
-        axis.title.y = element_text(size = 10, face = "bold",
-                                    margin = margin(r=15)),
-        legend.text = element_text(size = 10),
-        legend.title = element_text(size = 10, face = "bold"),
-        legend.key.size = unit(.8,"line"))+
-  coord_cartesian(clip = "off")
+LA_clean <- LA_clean %>% drop_na()
 
-Allplot <- ggarrange(Dist, d18O, common.legend = T)
+#reinterpolate Sr (higher spatial resolution ~5.5 um) to d18O distances (lower spatial resolution, ~35 um) before joining
+IDOto <- unique(d18O_clean$ID)
+dfE <- data.frame()
+for (i in 1:length(IDOto)) {
+  if(IDOto[i]%in%unique(LA_smooth$ID)){
+    Sr <- data.frame(approx(LA_smooth[which(LA_smooth$ID==IDOto[i]),"LA_dist"],
+              LA_smooth[which(LA_smooth$ID==IDOto[i]),"Sr"],
+              n = nrow(d18O_clean[which(d18O_clean$ID==IDOto[i]),]),
+              rule = 1, method = "linear", ties = "ordered"))
+    df <- as.data.frame(Sr[,2])
+  }
+  else{
+    df <- data.frame(value = rep(NA,nrow(d18O_clean[which(d18O_clean$ID == IDOto[i]),])))
+    names(df) <- names(dfE)
+  }
+  dfE <- rbind(dfE,df)
+}
 
-ggsave("Figures/OH-exploratory-figure.png", Allplot, width = 15, height = 10, units = "cm", dpi = 600, bg = "white")
+
+Otoall <- cbind(d18O_clean, dfE)
+
+fwrite(Otoall, "Data/Oto_all_clean_with_distance_year.csv")
 ```
 
 ```{r Model start, include=FALSE, eval=FALSE}
@@ -316,13 +316,14 @@ Otos2 <- Otos%>%
             age=as.factor(age),
             cohort=as.factor(cohort),
             year=as.numeric(year),
-            inc_um=inc_um,
+            inc_um=inc_um/1000,
             rad_um=rad_um,
             core=core,
             OH=as.numeric(scale(OH)),
             d18O=as.numeric(scale(d18O)),
-            sims_dist=sims_dist)%>%
-  drop_na(d18O,OH)%>%
+            Sr=as.numeric(scale(`Sr[, 2]`)),
+            sims_dist=sims_dist/1000)%>%
+  drop_na(d18O,OH, Sr)%>%
   distinct()
 
 fwrite(Otos2, "Data/Otodata_model.csv")
@@ -349,21 +350,25 @@ plot(0, xaxt = 'n', yaxt = 'n', bty = 'n', pch = '', ylab = '', xlab = '')
 ```
 
 ## Initial model
-$$\delta^{18}O \sim OH+Distance+increment+area+Sex+(1|ID)$$
+$$\delta^{18}O \sim OH+Sr+Distance+increment+area+Sex+(1|ID)$$
 
 ```{r initial model, include=FALSE, eval=FALSE}
-Otomodel.1 <- lmer(d18O~OH+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+rm(list = ls())
+
+Otos2 <- fread("Data/Otodata_model.csv")
+
+Otomodel.1 <- lmer(d18O~OH+Sr+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
 
 summary(Otomodel.1)
 ```
 
 ```{r variance inflation factors, include=FALSE, eval=FALSE}
-Otomodel.1 <- lmer(d18O~OH+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+Otomodel.1 <- lmer(d18O~OH+Sr+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
 
 Oto.vif <- vif(Otomodel.1)
 
 png(filename = "Figures/supplement/VIF-factors.png", width = 5000, height = 2500, res = 600)
-barplot(Oto.vif[,3], main = "VIF values", horiz = F, col = "darkgreen", ylim = c(0,6), las = 2)
+barplot(Oto.vif, main = "VIF values", horiz = F, col = "darkgreen", ylim = c(0,6), las = 2)
 abline(h = 5, lwd = 3, lty = 2, col="red")
 dev.off()
 ```
@@ -375,6 +380,9 @@ rand(Otomodel.1)
 #Test main effects
 No_OH <- update(Otomodel.1, ~.-OH)
 anova(Otomodel.1, No_OH)
+
+No_Sr <- update(Otomodel.1, ~.-Sr)
+anova(Otomodel.1, No_Sr)
 
 No_dist <- update(Otomodel.1, ~.-sims_dist)
 anova(Otomodel.1, No_dist)
@@ -415,6 +423,70 @@ plot(Otos2$resid~Otos2$inc_um, ylab = "Residuals", xlab = "increment (um)", las 
 plot(Otos2$resid~as.factor(Otos2$area), ylab = "Residuals", xlab = "capture area")
 plot(Otos2$resid~as.factor(Otos2$sex), ylab = "Residuals", xlab = "capture area")
 dev.off()
+```
+
+```{r figures d18O, include=FALSE, eval=FALSE}
+#script to form annual means of elemental data for clustering and increment analysis
+rm(list = ls())
+#Read in data
+Otodata <- fread("Data/Oto_all_clean_with_distance_year.csv")
+
+Otodata2 <- Otodata%>%
+  transmute(ID=ID,
+            TL_mm=TL_mm,
+            weight=weight,
+            sex=sex,
+            capt_date=capt_date,
+            age=as.factor(age),
+            capt=area,
+            area=case_when(area=="SB"~"Lagoon",
+                           area=="KB"~"Lagoon",
+                           area=="WB"~"Lagoon",
+                           area=="BEG"~"Lagoon",
+                           area=="KJB"~"Lagoon",
+                           area=="GJB"~"Lagoon",
+                           area=="GB"~"Lagoon",
+                           area=="Badendycksgraben" ~ "anadromous",
+                           area=="NHG" ~ "anadromous",
+                           area=="Sehrowbach" ~ "anadromous",
+                           area=="Ziese" ~ "anadromous",
+                           area=="Barthe" ~ "freshwater",
+                           area=="Peene" ~ "freshwater",
+                           TRUE~"lake"),
+            OH=OH,
+            d18O=d18O,
+            year=as.factor(year),
+            inc_um=inc_um,
+            rad_um=rad_um,
+            dist=sims_dist)
+
+# Plot lifelong increase in d18O --> colder the older
+mypallette <- viridis::viridis(4, direction = 1)
+
+d18O <- ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
+  geom_point(aes(x = OH, y = d18O), size = 0.001)+
+  geom_smooth(aes(x = OH, y = d18O, color=area),  size=1 , method = "lm")+
+  lims(x = c(0.02,0.06))+
+  labs(x=expression("OH/"^16*"O count ratio"),
+       y=expression(delta^18*"O"~("\u2030 VPDB")),
+       color="area of capture")+
+  theme_classic()+
+  scale_color_viridis_d()+
+  theme(panel.grid.major = element_line(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        axis.line = element_line(size = .5, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = .5, colour = "black"),
+        axis.text = element_text(size = 10, colour = "black"),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.key.size = unit(.8,"line"))+
+  coord_cartesian(clip = "off")
+
+ggsave("Figures/OH-exploratory-figure.png", d18O, width = 15, height = 10, units = "cm", dpi = 600, bg = "white")
 ```
 
 ```{r calculate set of means for temperature reconstruction, include=FALSE, eval=FALSE}
@@ -655,13 +727,13 @@ Otos2 <- Otos%>%
             weight=as.numeric(weight),
             sex=case_when(ID == "BH-90307"~"f",
                           TRUE ~ sex),
-            area=as.factor(case_when(area == "Sehrowbach"~"Tributary",
-                                     area == "Ziese"~"Tributary",
-                                     area == "NHG"~"Tributary",
-                                     area == "Peene"~"Tributary",
-                                     area == "Barthe"~"Tributary",
+            area=as.factor(case_when(area == "Sehrowbach"~"anadromous",
+                                     area == "Ziese"~"anadromous",
+                                     area == "NHG"~"anadromous",
+                                     area == "Peene"~"freshwater",
+                                     area == "Barthe"~"freshwater",
                                      area == "KB"~"Lagoon",
-                                     area == "Badendycksgraben"~"Tributary",
+                                     area == "Badendycksgraben"~"anadromous",
                                      area == "SB"~"Lagoon",
                                      area == "WB"~"Lagoon",
                                      area == "BEG"~"Lagoon",
@@ -676,12 +748,13 @@ Otos2 <- Otos%>%
             OH=OH,
             d18O_Oto=d18O,
             OH.scale=as.numeric(scale(OH)),
+            Sr.scale=as.numeric(scale(`Sr[, 2]`)),
             d18O_Oto.scale=as.numeric(scale(d18O)),
             sims_dist=sims_dist)%>%
   drop_na(d18O_Oto,OH)%>%
   distinct()
 
-Otomodel.1 <- lmer(d18O_Oto.scale~OH.scale+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+Otomodel.1 <- lmer(d18O_Oto.scale~OH.scale+Sr.scale+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
 
 coefficients <- fixef(Otomodel.1)
 
@@ -699,6 +772,7 @@ Pike_corrected <- Otos2%>%
             OH = OH,
             d18O_oto = d18O_Oto,
             d18O_oto_cor = d18O_Oto-OH.scale*intercept_OH*sd(d18O_Oto),
+            diff = d18O_Oto-d18O_oto_cor,
             sims_dist = sims_dist)
 
 fwrite(Pike_corrected, "Data/Oto_corrected.csv")
@@ -710,7 +784,7 @@ rm(list = ls())
 #Read in data
 Pike_corrected <- fread("Data/Oto_corrected.csv")
 
-#Plot temperature data
+#Plot raw vs correction
 raw_vs_cor <- ggplot(Pike_corrected)+
   geom_smooth(aes(sims_dist, d18O_oto, color = area, linetype = "raw"), method = "gam")+
   geom_smooth(aes(sims_dist, d18O_oto_cor, color = area, linetype = "correction"), method = "gam")+
@@ -748,7 +822,7 @@ rm(list = ls())
 #Read in data
 Pike_corrected <- fread("Data/Oto_corrected.csv")
 
-BH01855 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01855",])+
+BH01855_cor <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01855",])+
   geom_point(aes(sims_dist, d18O_oto, color = "raw", shape = "raw"))+
   geom_line(aes(sims_dist, d18O_oto, color = "raw"))+
   geom_point(aes(sims_dist, d18O_oto_cor, color = "correction", shape = "correction"), linetype = "dotted")+
