@@ -289,6 +289,82 @@ Otoall <- cbind(d18O_clean, dfE)
 fwrite(Otoall, "Data/Oto_all_clean_with_distance_year.csv")
 ```
 
+```{r EMS measurements, include=FALSE, eval=FALSE}
+rm(list = ls())
+
+#read in matrices
+BH_1855_Ca <- as.matrix(fread("Data/EMS_maps/644_Ca_map.txt"))
+BH_1855_Mg <- as.matrix(fread("Data/EMS_maps/644_Mg_map.txt"))
+BH_1855_P <- as.matrix(fread("Data/EMS_maps/644_P_map.txt"))
+BH_1855_S <- as.matrix(fread("Data/EMS_maps/644_S_map.txt"))
+BH_1855_Sr <- as.matrix(fread("Data/EMS_maps/644_Sr_map.txt"))
+BH_1588_Ca <- as.matrix(fread("Data/EMS_maps/652_Ca_map.txt"))
+BH_1588_Mg <- as.matrix(fread("Data/EMS_maps/652_Mg_map.txt"))
+BH_1588_P <- as.matrix(fread("Data/EMS_maps/652_P_map.txt"))
+BH_1588_S <- as.matrix(fread("Data/EMS_maps/652_S_map.txt"))
+BH_1588_Sr <- as.matrix(fread("Data/EMS_maps/652_Sr_map.txt"))
+BH_1722_Ca <- as.matrix(fread("Data/EMS_maps/660_Ca_map.txt"))
+BH_1722_Mg <- as.matrix(fread("Data/EMS_maps/660_Mg_map.txt", fill = TRUE))
+BH_1722_P <- as.matrix(fread("Data/EMS_maps/660_P_map.txt"))
+BH_1722_S <- as.matrix(fread("Data/EMS_maps/660_S_map.txt"))
+BH_1722_Sr <- as.matrix(fread("Data/EMS_maps/660_Sr_map.txt"))
+
+#replace 0 with NA
+BH_1855_Ca[BH_1855_Ca == 0] <- NA
+BH_1855_Mg[BH_1855_Mg == 0] <- NA
+BH_1855_P[BH_1855_P == 0] <- NA
+BH_1855_S[BH_1855_S == 0] <- NA
+BH_1855_Sr[BH_1855_Sr == 0] <- NA
+BH_1588_Ca[BH_1588_Ca == 0] <- NA
+BH_1588_Mg[BH_1588_Mg == 0] <- NA
+BH_1588_P[BH_1588_P == 0] <- NA
+BH_1588_S[BH_1588_S == 0] <- NA
+BH_1588_Sr[BH_1588_Sr == 0] <- NA
+BH_1722_Ca[BH_1722_Ca == 0] <- NA
+BH_1722_Mg[BH_1722_Mg == 0] <- NA
+BH_1722_P[BH_1722_P == 0] <- NA
+BH_1722_S[BH_1722_S == 0] <- NA
+BH_1722_Sr[BH_1722_Sr == 0] <- NA
+
+#test with Ca (should be ~ 38)
+BH_1855_CA_perc <- ((BH_1855_Ca/80)-1.472)/9.188
+BH_1588_CA_perc <- ((BH_1588_Ca/80)-1.472)/9.188
+BH_1722_CA_perc <- ((BH_1722_Ca/80)-1.472)/9.188
+
+mean(BH_1855_CA_perc, na.rm = TRUE)
+mean(BH_1588_CA_perc, na.rm = TRUE)
+mean(BH_1722_CA_perc, na.rm = TRUE)
+
+#Convert the rest
+BH_1855_Mg_perc <- ((BH_1855_Mg/80)-3)/18.359
+BH_1855_S_perc <- ((BH_1855_S/80)-0.592)/12.8
+BH_1855_Sr_perc <- ((BH_1855_Sr/80)-1.093)/3.323
+BH_1855_P_perc <- ((BH_1855_P/80)-0.375)/9.039
+BH_1588_Mg_perc <- ((BH_1588_Mg/80)-3)/18.359
+BH_1588_S_perc <- ((BH_1588_S/80)-0.592)/12.8
+BH_1588_Sr_perc <- ((BH_1588_Sr/80)-1.093)/3.323
+BH_1588_P_perc <- ((BH_1588_P/80)-0.375)/9.039
+BH_1722_Mg_perc <- ((BH_1722_Mg/80)-3)/18.359
+BH_1722_S_perc <- ((BH_1722_S/80)-0.592)/12.8
+BH_1722_Sr_perc <- ((BH_1722_Sr/80)-1.093)/3.323
+BH_1722_P_perc <- ((BH_1722_P/80)-0.375)/9.039
+
+#Mean and range of P and S
+range(BH_1855_P_perc, na.rm = TRUE)
+range(BH_1588_P_perc, na.rm = TRUE)
+range(BH_1722_P_perc, na.rm = TRUE)
+
+range(BH_1855_S_perc, na.rm = TRUE)
+range(BH_1588_S_perc, na.rm = TRUE)
+range(BH_1722_S_perc, na.rm = TRUE)
+
+range(BH_1855_Mg_perc, na.rm = TRUE)
+range(BH_1588_Mg_perc, na.rm = TRUE)
+range(BH_1722_Mg_perc, na.rm = TRUE)
+```
+
+# Cleanup for modelling
+
 ```{r Model start, include=FALSE, eval=FALSE}
 rm(list = ls())
 
@@ -425,7 +501,7 @@ plot(Otos2$resid~as.factor(Otos2$sex), ylab = "Residuals", xlab = "capture area"
 dev.off()
 ```
 
-```{r figures d18O, include=FALSE, eval=FALSE}
+```{r figures for d18O - OH correlation, include=FALSE, eval=FALSE}
 #script to form annual means of elemental data for clustering and increment analysis
 rm(list = ls())
 #Read in data
@@ -446,13 +522,13 @@ Otodata2 <- Otodata%>%
                            area=="KJB"~"Lagoon",
                            area=="GJB"~"Lagoon",
                            area=="GB"~"Lagoon",
-                           area=="Badendycksgraben" ~ "anadromous",
-                           area=="NHG" ~ "anadromous",
-                           area=="Sehrowbach" ~ "anadromous",
-                           area=="Ziese" ~ "anadromous",
-                           area=="Barthe" ~ "freshwater",
-                           area=="Peene" ~ "freshwater",
-                           TRUE~"lake"),
+                           area=="Badendycksgraben" ~ "Tributary",
+                           area=="NHG" ~ "Tributary",
+                           area=="Sehrowbach" ~ "Tributary",
+                           area=="Ziese" ~ "Tributary",
+                           area=="Barthe" ~ "Tributary",
+                           area=="Peene" ~ "Tributary",
+                           TRUE~"Control lake"),
             OH=OH,
             d18O=d18O,
             year=as.factor(year),
@@ -487,6 +563,111 @@ d18O <- ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
   coord_cartesian(clip = "off")
 
 ggsave("Figures/OH-exploratory-figure.png", d18O, width = 15, height = 10, units = "cm", dpi = 600, bg = "white")
+```
+
+```{r figures for d18O - OH overlay to EMS scans, include=FALSE, eval=FALSE}
+
+rm(list = ls())
+#Read in data
+Otodata <- fread("Data/Oto_all_clean_with_distance_year.csv")
+
+Otodata2 <- Otodata%>%
+  transmute(ID=ID,
+            TL_mm=TL_mm,
+            weight=weight,
+            sex=sex,
+            capt_date=capt_date,
+            age=as.factor(age),
+            capt=area,
+            area=case_when(area=="SB"~"Lagoon",
+                           area=="KB"~"Lagoon",
+                           area=="WB"~"Lagoon",
+                           area=="BEG"~"Lagoon",
+                           area=="KJB"~"Lagoon",
+                           area=="GJB"~"Lagoon",
+                           area=="GB"~"Lagoon",
+                           area=="Badendycksgraben" ~ "Tributary",
+                           area=="NHG" ~ "Tributary",
+                           area=="Sehrowbach" ~ "Tributary",
+                           area=="Ziese" ~ "Tributary",
+                           area=="Barthe" ~ "Tributary",
+                           area=="Peene" ~ "Tributary",
+                           TRUE~"Control lake"),
+            OH=OH,
+            d18O=d18O,
+            year=as.factor(year),
+            inc_um=inc_um,
+            rad_um=rad_um,
+            dist=sims_dist)
+
+BH01855 <- ggplot(Otodata2[Otodata2$ID == "BH-01855",], aes(dist, OH))+
+  geom_point(size = 3, color = "black")+
+  geom_line(linewidth = 2, color = "black")+
+  labs(y = expression("OH/"^16*"O count ratio"),
+       x = expression("distance from otolith core"~(mu*"m")))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(color = "black"),
+        panel.grid.minor = element_line(color = "black"),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(size = 1, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.text = element_text(size = 20, colour = "black"),
+        axis.title.x = element_text(size = 20, face = "bold", color = "black"),
+        axis.title.y = element_text(size = 20, face = "bold", color = "black",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 20),
+        legend.key.size = unit(1,"line"))
+
+ggsave("Figures/supplement/BH-01855-OH.png", BH01855, width = 15, height = 15, units = "cm", dpi = 600, bg = "white")
+
+BH01588 <- ggplot(Otodata2[Otodata2$ID == "BH-01588",], aes(dist, OH))+
+  geom_point(size = 3, color = "black")+
+  geom_line(linewidth = 2, color = "black")+
+  labs(y = expression("OH/"^16*"O count ratio"),
+       x = expression("distance from otolith core"~(mu*"m")))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(color = "black"),
+        panel.grid.minor = element_line(color = "black"),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(size = 1, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.text = element_text(size = 20, colour = "black"),
+        axis.title.x = element_text(size = 20, face = "bold", color = "black"),
+        axis.title.y = element_text(size = 20, face = "bold", color = "black",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 20),
+        legend.key.size = unit(1,"line"))
+
+ggsave("Figures/supplement/BH-01588-OH.png", BH01588, width = 15, height = 15, units = "cm", dpi = 600, bg = "white")
+
+BH01722 <- ggplot(Otodata2[Otodata2$ID == "BH-01722",], aes(dist, OH))+
+  geom_point(size = 3, color = "black")+
+  geom_line(linewidth = 2, color = "black")+
+  labs(y = expression("OH/"^16*"O count ratio"),
+       x = expression("distance from otolith core"~(mu*"m")))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(color = "black"),
+        panel.grid.minor = element_line(color = "black"),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        plot.background = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(size = 1, colour = "black", linetype = 1),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.text = element_text(size = 20, colour = "black"),
+        axis.title.x = element_text(size = 20, face = "bold", color = "black"),
+        axis.title.y = element_text(size = 20, face = "bold", color = "black",
+                                    margin = margin(r=15)),
+        legend.text = element_text(size = 20),
+        legend.key.size = unit(1,"line"))
+
+ggsave("Figures/supplement/BH-01722-OH.png", BH01722, width = 15, height = 15, units = "cm", dpi = 600, bg = "white")
 ```
 
 ```{r calculate set of means for temperature reconstruction, include=FALSE, eval=FALSE}
@@ -747,18 +928,23 @@ Otos2 <- Otos%>%
             inc_um=inc_um,
             OH=OH,
             d18O_Oto=d18O,
-            OH.scale=as.numeric(scale(OH)),
-            Sr.scale=as.numeric(scale(`Sr[, 2]`)),
-            d18O_Oto.scale=as.numeric(scale(d18O)),
+            OH=as.numeric(OH),
+            Sr=as.numeric(`Sr[, 2]`),
+            d18O=as.numeric(d18O),
             sims_dist=sims_dist)%>%
   drop_na(d18O_Oto,OH)%>%
   distinct()
 
-Otomodel.1 <- lmer(d18O_Oto.scale~OH.scale+Sr.scale+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+Otos_overview <- Otos2%>%
+  transmute(ID, area, sex)%>%
+  distinct()
 
-coefficients <- fixef(Otomodel.1)
+table(Otos_overview$sex, Otos_overview$area)
 
-intercept_OH <- coefficients["OH.scale"]
+Otomodel.1 <- lm(d18O~OH, data = Otos2)
+summary(Otomodel.1)
+
+intercept_OH <- as.numeric(Otomodel.1$coefficients[2])
 
 Pike_corrected <- Otos2%>%
   transmute(ID = ID,
@@ -771,9 +957,16 @@ Pike_corrected <- Otos2%>%
             year = year,
             OH = OH,
             d18O_oto = d18O_Oto,
-            d18O_oto_cor = d18O_Oto-OH.scale*intercept_OH*sd(d18O_Oto),
+            d18O_oto_cor = d18O_Oto-OH*intercept_OH,
             diff = d18O_Oto-d18O_oto_cor,
             sims_dist = sims_dist)
+
+mean(Pike_corrected$diff)
+mean(Pike_corrected[Pike_corrected$area=="Lagoon",]$diff)
+mean(Pike_corrected[Pike_corrected$area=="freshwater",]$diff)
+mean(Pike_corrected[Pike_corrected$area=="anadromous",]$diff)
+
+anova(lm(diff~area, data = Pike_corrected))
 
 fwrite(Pike_corrected, "Data/Oto_corrected.csv")
 ```
@@ -786,14 +979,16 @@ Pike_corrected <- fread("Data/Oto_corrected.csv")
 
 #Plot raw vs correction
 raw_vs_cor <- ggplot(Pike_corrected)+
-  geom_smooth(aes(sims_dist, d18O_oto, color = area, linetype = "raw"), method = "gam")+
-  geom_smooth(aes(sims_dist, d18O_oto_cor, color = area, linetype = "correction"), method = "gam")+
+  geom_smooth(aes(sims_dist, d18O_oto, color = area, fill = area, linetype = "raw"), method = "gam")+
+  geom_smooth(aes(sims_dist, d18O_oto_cor, color = area, fill = area, linetype = "correction"), method = "gam")+
   labs(x = expression("distance from otolith core"~(mu*"m")),
        y = expression(delta^18~"O"~("\u2030 VPDB")),
-       color = "area of capture",
+       color = "habitat use",
+       fill = "habitat use",
        linetype = "correction")+
   theme_classic()+
   scale_color_viridis_d(direction = 1, begin = 0, end = 0.7)+
+  scale_fill_viridis_d(direction = 1, begin = 0, end = 0.7)+
   scale_linetype_manual(breaks = c("raw", "correction"),
                         values = c("solid", "dotted"),
                         guide = guide_legend(override.aes = list(color = "black")))+
@@ -801,6 +996,7 @@ raw_vs_cor <- ggplot(Pike_corrected)+
                         values = c(1,2),
                         guide = guide_legend(override.aes = list(color = "black")))+
   theme(panel.grid.major = element_line(),
+        panel.grid.minor = element_line(),
         legend.background = element_blank(),
         legend.box.background = element_blank(),
         axis.line = element_line(size = .5, colour = "black", linetype = 1),
@@ -822,7 +1018,7 @@ rm(list = ls())
 #Read in data
 Pike_corrected <- fread("Data/Oto_corrected.csv")
 
-BH01855_cor <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01855",])+
+BH01855 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01855",])+
   geom_point(aes(sims_dist, d18O_oto, color = "raw", shape = "raw"))+
   geom_line(aes(sims_dist, d18O_oto, color = "raw"))+
   geom_point(aes(sims_dist, d18O_oto_cor, color = "correction", shape = "correction"), linetype = "dotted")+
@@ -833,8 +1029,8 @@ BH01855_cor <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01855",])+
                      values = c(18,19))+
   labs(x = expression("distance from otolith core"~(mu*"m")),
        y = expression(delta^18~"O"~("\u2030 VPDB")),
-       color = "correction",
-       shape = "correction")+
+       color = "",
+       shape = "")+
   theme_bw()+
   theme(panel.grid.major = element_line(),
         legend.background = element_blank(),
@@ -860,8 +1056,8 @@ BH01588 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01588",])+
                      values = c(18,19))+
   labs(x = expression("distance from otolith core"~(mu*"m")),
        y = expression(delta^18~"O"~("\u2030 VPDB")),
-       color = "correction",
-       shape = "correction")+
+       color = "",
+       shape = "")+
   theme_bw()+
   theme(panel.grid.major = element_line(),
         legend.background = element_blank(),
@@ -887,8 +1083,8 @@ BH01722 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01722",])+
                      values = c(18,19))+
   labs(x = expression("distance from otolith core"~(mu*"m")),
        y = expression(delta^18~"O"~("\u2030 VPDB")),
-       color = "correction",
-       shape = "correction")+
+       color = "",
+       shape = "")+
   theme_bw()+
   theme(panel.grid.major = element_line(),
         legend.background = element_blank(),
@@ -906,13 +1102,6 @@ BH01722 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01722",])+
 Allplot <- ggarrange(BH01855, BH01588, BH01722, common.legend = T, nrow = 3)
 
 ggsave("Figures/raw-vs-corrected_ind.png", width = 15, height = 30, units = "cm", dpi = 600, bg = "white")
-```
-
-```{r model validation, include=FALSE, eval=FALSE}
-plot(Otomodel.1, xlab = "Fitted", ylab = "Residuals")
-
-qqnorm(resid(Otomodel.1))
-qqline(resid(Otomodel.1))
 ```
 
 
