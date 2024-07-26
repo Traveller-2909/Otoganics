@@ -369,12 +369,20 @@ range(BH_1722_Mg_perc, na.rm = TRUE)
 rm(list = ls())
 
 Otos <- fread("Data/Oto_all_clean_with_distance_year.csv")
+phenos <- fread("Data/Pikedata_model_phenos.csv")
+
+phenos2 <- phenos%>%
+  transmute(ID, phenotype)%>%
+  distinct()
+
+Otos1 <- Otos%>%
+  left_join(phenos2, by = "ID")
 
 head(Otos)
 tail(Otos)
 str(Otos)
 
-Otos2 <- Otos%>%
+Otos2 <- Otos1%>%
   transmute(ID=ID,
             TL_mm=as.numeric(TL_mm),
             weight=as.numeric(weight),
@@ -388,6 +396,7 @@ Otos2 <- Otos%>%
                            area=="GJB"~"Lagoon",
                            area=="GB"~"Lagoon",
                            TRUE~"Tributary"),
+            phenotype,
             capt_date=capt_date,
             age=as.factor(age),
             cohort=as.factor(cohort),
@@ -433,18 +442,18 @@ rm(list = ls())
 
 Otos2 <- fread("Data/Otodata_model.csv")
 
-Otomodel.1 <- lmer(d18O~OH+Sr+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+Otomodel.1 <- lmer(d18O~OH+sims_dist+inc_um+area+phenotype+sex+(1|ID), REML = T, data = Otos2)
 
 summary(Otomodel.1)
 ```
 
 ```{r variance inflation factors, include=FALSE, eval=FALSE}
-Otomodel.1 <- lmer(d18O~OH+Sr+sims_dist+inc_um+area+sex+(1|ID), REML = T, data = Otos2)
+Otomodel.1 <- lmer(d18O~OH+Sr+sims_dist+inc_um+area+phenotype+sex+(1|ID), REML = T, data = Otos2)
 
 Oto.vif <- vif(Otomodel.1)
 
 png(filename = "Figures/supplement/VIF-factors.png", width = 5000, height = 2500, res = 600)
-barplot(Oto.vif, main = "VIF values", horiz = F, col = "darkgreen", ylim = c(0,6), las = 2)
+barplot(Oto.vif[,1], main = "VIF values", horiz = F, col = "darkgreen", ylim = c(0,6), las = 2)
 abline(h = 5, lwd = 3, lty = 2, col="red")
 dev.off()
 ```
@@ -457,8 +466,8 @@ rand(Otomodel.1)
 No_OH <- update(Otomodel.1, ~.-OH)
 anova(Otomodel.1, No_OH)
 
-No_Sr <- update(Otomodel.1, ~.-Sr)
-anova(Otomodel.1, No_Sr)
+No_pheno <- update(Otomodel.1, ~.-phenotype)
+anova(Otomodel.1, No_pheno)
 
 No_dist <- update(Otomodel.1, ~.-sims_dist)
 anova(Otomodel.1, No_dist)
@@ -497,6 +506,7 @@ plot(Otos2$resid~Otos2$OH, ylab = "Residuals", xlab = "OH", las = 2)
 plot(Otos2$resid~Otos2$sims_dist, ylab = "Residuals", xlab = "distance to core (um)", las = 2)
 plot(Otos2$resid~Otos2$inc_um, ylab = "Residuals", xlab = "increment (um)", las = 2)
 plot(Otos2$resid~as.factor(Otos2$area), ylab = "Residuals", xlab = "capture area")
+plot(Otos2$resid~as.factor(Otos2$phenotype), ylab = "Residuals", xlab = "behavioral phenotype")
 plot(Otos2$resid~as.factor(Otos2$sex), ylab = "Residuals", xlab = "capture area")
 dev.off()
 ```
@@ -540,10 +550,10 @@ Otodata2 <- Otodata%>%
 mypallette <- viridis::viridis(4, direction = 1)
 
 d18O <- ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
-  geom_point(aes(x = OH, y = d18O), size = 0.001)+
+  geom_point(aes(x = OH, y = d18O, color=area), size = 0.001)+
   geom_smooth(aes(x = OH, y = d18O, color=area),  size=1 , method = "lm")+
   lims(x = c(0.02,0.06))+
-  labs(x=expression("OH/"^16*"O count ratio"),
+  labs(x=expression("OH/"^16*"O count rate ratio"),
        y=expression(delta^18*"O"~("\u2030 VPDB")),
        color="area of capture")+
   theme_classic()+
@@ -922,6 +932,7 @@ Otos2 <- Otos%>%
                                      area == "GJB"~"Lagoon",
                                      area == "GB"~"Lagoon",
                                      TRUE~area)),
+            capt_date,
             age=as.factor(age),
             cohort=cohort,
             year=as.numeric(year),
@@ -947,11 +958,12 @@ summary(Otomodel.1)
 intercept_OH <- as.numeric(Otomodel.1$coefficients[2])
 
 Pike_corrected <- Otos2%>%
-  transmute(ID = ID,
+  transmute(fishID = ID,
             TL_mm = TL_mm,
             weight = weight,
             sex = sex,
             area = area,
+            capt_date,
             age = age,
             cohort = cohort,
             year = year,
@@ -1102,6 +1114,435 @@ BH01722 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01722",])+
 Allplot <- ggarrange(BH01855, BH01588, BH01722, common.legend = T, nrow = 3)
 
 ggsave("Figures/raw-vs-corrected_ind.png", width = 15, height = 30, units = "cm", dpi = 600, bg = "white")
+```
+
+#Validation of correction
+
+```{r prediction of otolith d18O, include=FALSE, eval=FALSE}
+#script to interpolate water d18O over years observed in pike otoliths
+rm(list = ls())
+
+#Get isotope data
+Isotopes <- fread("Data/Water_isotopes_Bodden.txt")
+
+LUNGdata <- read.delim(file = "Data/LUNGdata_complete.txt", sep = "\t", header = T, stringsAsFactors = F)
+LUNGdata_Bodden <- LUNGdata%>%
+  filter(type=="Coast")%>%
+  mutate(area=case_when(waterbody=="Kubitzer Bodden"~"WRB",
+                        waterbody=="Greifswalder Bodden"~"GB",
+                        waterbody=="Daenische Wiek"~"GB",
+                        waterbody=="Andershofer Bucht"~"GB",
+                        waterbody=="Vitter Bodden"~"WRB",
+                        waterbody=="Rassower Strom"~"NRB",
+                        waterbody=="Breetzer Bodden"~"NRB",
+                        waterbody=="Gr. Jasmunder Bodden"~"NRB",
+                        waterbody=="Kl. Jasmunder Bodden"~"NRB",
+                        waterbody=="Schaproder Bodden"~"WRB",
+                        TRUE~"NA"))%>%
+  filter(area!="NA")
+
+Lungdata_fresh <- LUNGdata%>%
+  filter(type=="Freshwater")%>%
+  mutate(area=case_when(waterbody=="Barthe"~"Tributary",
+                        waterbody=="Westziese"~"Tributary",
+                        waterbody=="Ostziese"~"Tributary",
+                        waterbody=="Sehrower Bach"~"Tributary",
+                        waterbody=="Badendycksgraben"~"Tributary",
+                        TRUE~"NA"))
+
+Bodden_mean <- LUNGdata_Bodden%>%
+  group_by(area, year, month)%>%
+  dplyr::summarise(area=area,
+                   year=year,
+                   type=type,
+                   SAL=mean(SAL, na.rm=T),
+                   WT=mean(WT, na.rm=T))%>%
+  distinct()
+
+Fresh_mean <- Lungdata_fresh%>%
+  filter(area!="NA")%>%
+  group_by(area, year, month)%>%
+  dplyr::summarise(area=area,
+                   year=year,
+                   type=type,
+                   SAL=mean(SAL, na.rm=T),
+                   WT=mean(WT, na.rm=T))%>%
+  distinct()
+
+Isotopes2 <- Isotopes%>%
+  transmute(waterbody=waterbody,
+            month=month(parse_date_time(Date, "dmy")),
+            area=case_when(waterbody=="Uck"~"NA",
+                           waterbody=="SH"~"SH",
+                           waterbody=="Peene"~"Tributary",
+                           waterbody=="P"~"P",
+                           waterbody=="AW"~"P",
+                           waterbody=="GB"~"GB",
+                           waterbody=="Ryck"~"NA",
+                           waterbody=="S"~"WRB",
+                           waterbody=="Beek"~"NA",
+                           waterbody=="GJB"~"NRB",
+                           waterbody=="KJB"~"NRB",
+                           waterbody=="Baltic"~"Baltic",
+                           waterbody=="BEG"~"NRB",
+                           waterbody=="WB"~"NRB",
+                           waterbody=="VB"~"WRB",
+                           waterbody=="SB"~"WRB",
+                           waterbody=="KB"~"WRB",
+                           waterbody=="GW"~"DZB",
+                           waterbody=="BAT"~"DZB",
+                           waterbody=="Barthe"~"Tributary",
+                           waterbody=="BoB"~"DZB",
+                           waterbody=="SaB"~"SaB",
+                           waterbody=="Templer creek"~"NA",
+                           waterbody=="Recknitz"~"NA",
+                           waterbody=="ZS"~"ZS"),
+            coast.FW=`coast/FW`,
+            d18O=d18O,
+            Sal=Sal_PSU,
+            WT=WT_C)%>%
+  drop_na(d18O)
+
+Isotopes_mean <- Isotopes2%>%
+  group_by(month, area)%>%
+  dplyr::summarise(month=month,
+                   area=area,
+                   coast.FW=coast.FW,
+                   d18O=mean(d18O, na.rm=T),
+                   Sal=mean(Sal, na.rm=T),
+                   WT=mean(WT, na.rm=T))%>%
+  distinct()
+
+subset.WRB <- subset(Isotopes_mean, area=="WRB")
+subset.fresh <- subset(Isotopes_mean, area=="ZS")
+
+
+#data frame for merging
+df <- data.frame(month = 1:12)
+
+#get data for NRB
+subset.NRB <- subset(Isotopes_mean, area=="NRB")
+#complete months
+subset.NRB <- merge(df, subset.NRB, by = "month", all.x = T)
+#interpolate between months
+subset.NRB$d18O <- na.approx(subset.NRB$d18O, na.rm=F)
+
+#apply linear correction of missing values based on seasonal offset from timeseries
+subset.NRB$d18O[1:2] <- subset.WRB$d18O[1:2]/subset.WRB$d18O[3]*subset.NRB$d18O[3]
+subset.NRB$d18O[8:12] <- subset.WRB$d18O[8:12]/subset.WRB$d18O[7]*subset.NRB$d18O[7]
+subset.NRB$area <- "NRB"
+
+#same for GB area
+subset.GB <- subset(Isotopes_mean, area=="GB")
+subset.GB <- merge(df, subset.GB, by="month", all.x = T)
+subset.GB$d18O <- na.approx(subset.GB$d18O, na.rm=F)
+
+#apply linear correction of missing values based on seasonal offset from timeseries
+subset.GB$d18O[1:2] <- subset.WRB$d18O[1:2]/subset.WRB$d18O[3]*subset.GB$d18O[3]
+subset.GB$d18O[8:12] <- subset.WRB$d18O[8:12]/subset.WRB$d18O[7]*subset.GB$d18O[7]
+subset.GB$area <- "GB"
+
+#tributaries
+subset.tributary <- subset(Isotopes_mean, area == "Tributary")
+subset.tributary <- merge(df, subset.tributary, by="month", all.x = T)
+subset.tributary$d18O <- na.approx(subset.tributary$d18O, na.rm=F)
+
+#apply linear correction of missing values based on seasonal offset from timeseries
+subset.tributary$d18O[1:2] <- subset.fresh$d18O[1:2]/subset.fresh$d18O[3]*subset.tributary$d18O[3]
+subset.tributary$d18O[8:12] <- subset.fresh$d18O[8:12]/subset.fresh$d18O[7]*subset.tributary$d18O[7]
+subset.tributary$area <- "Tributary"
+
+Bodden_iso <- rbind(subset.GB[,c(1,2,4)],subset.WRB[,c(1,2,4)],subset.NRB[,c(1,2,4)])
+
+Fresh_iso <- subset.tributary[,c(1,2,4)]
+
+Bodden_iso_temp <- Bodden_mean%>%left_join(Bodden_iso, by=c("month", "area"))
+Fresh_iso_temp <- Fresh_mean%>%left_join(Fresh_iso, by=c("month", "area"))
+
+
+#Fractionation equation for otolith aragonite
+Patterson <- function(month, WT, d18O){
+  alpha <- exp((18.56*1000*((WT+273.15)^-1)-33.49)/1000)
+  0.97001*(alpha*(1000+d18O)-1000)-29.99
+}
+
+Geffen <- function(month, WT, d18O){
+  alpha <- exp((15.99*1000*((WT+273.15)^-1)-24.25)/1000)
+  0.97001*(alpha*(1000+d18O)-1000)-29.99
+}
+
+#calculate theoretical otolith d18O values with prediction intervals
+Bodden_iso_oto <- Bodden_iso_temp%>%
+  mutate(d18O.oto.Patterson = Patterson(month,WT,d18O),
+         d18O.oto.Geffen = Geffen(month,WT,d18O),
+         date=as.Date(paste0(year,"-",month,"-","01")))%>%
+  group_by(month, year)%>%
+  mutate(upper.Pat=max(d18O.oto.Patterson),
+         lower.Pat=min(d18O.oto.Patterson),
+         upper.Gef=max(d18O.oto.Geffen),
+         lower.Gef=min(d18O.oto.Geffen))
+
+Fresh_iso_oto <- Fresh_iso_temp%>%
+  mutate(d18O.oto.Patterson = Patterson(month,WT,d18O),
+         d18O.oto.Geffen = Geffen(month,WT,d18O),
+         date=as.Date(paste0(year,"-",month,"-","01")))%>%
+  group_by(month)%>%
+  mutate(upper.Pat=max(d18O.oto.Patterson),
+         lower.Pat=min(d18O.oto.Patterson),
+         upper.Gef=max(d18O.oto.Geffen),
+         lower.Gef=min(d18O.oto.Geffen))
+
+fwrite(Bodden_iso_oto, file = "Data/Bodden-isotope-predictions.csv")
+fwrite(Fresh_iso_oto, file = "Data/Freshwater-isotope-predictions.csv")
+```
+
+```{r pike data for d18O years, include=FALSE, eval=FALSE}
+#script to interpolate pike otolith d18O into yearly (12-month) format
+rm(list = ls())
+
+source("Interpolation_function.R")
+
+#Get pike data
+Pike <- fread("Data/Oto_corrected.csv")
+
+Pike2 <- Pike%>%
+  group_by(fishID)%>%
+  mutate(lifeyear = cohort+year)%>%
+  drop_na(d18O_oto)
+
+#subset pike according to lifeyears as read
+Pike.1 <- subset(Pike2[Pike2$age>=1,], year==1)
+Pike.2 <- subset(Pike2[Pike2$age>=2,], year==2)
+Pike.3 <- subset(Pike2[Pike2$age>=3,], year==3)
+Pike.4 <- subset(Pike2[Pike2$age>=4,], year==4)
+Pike.5 <- subset(Pike2[Pike2$age>=5,], year==5)
+Pike.6 <- subset(Pike2[Pike2$age>=6,], year==6)
+Pike.7 <- subset(Pike2[Pike2$age>=7,], year==7)
+Pike.8 <- subset(Pike2[Pike2$age>=8,], year==8)
+Pike.9 <- subset(Pike2[Pike2$age>=9,], year==9)
+Pike.10 <- subset(Pike2[Pike2$age>=10,], year==10)
+
+Pike_year1_d18O <- interpol(series = Pike.1, length = 12, element = "d18O_oto")
+Pike_year2_d18O <- interpol(series = Pike.2, length = 12, element = "d18O_oto")
+Pike_year3_d18O <- interpol(series = Pike.3, length = 12, element = "d18O_oto")
+Pike_year4_d18O <- interpol(series = Pike.4, length = 12, element = "d18O_oto")
+Pike_year5_d18O <- interpol(series = Pike.5, length = 12, element = "d18O_oto")
+Pike_year6_d18O <- interpol(series = Pike.6, length = 12, element = "d18O_oto")
+Pike_year7_d18O <- interpol(series = Pike.7, length = 12, element = "d18O_oto")
+Pike_year8_d18O <- interpol(series = Pike.8, length = 12, element = "d18O_oto")
+Pike_year9_d18O <- interpol(series = Pike.9, length = 12, element = "d18O_oto")
+Pike_year10_d18O <- interpol(series = Pike.10, length = 12, element = "d18O_oto")
+
+Pike_year1_d18O_cor <- interpol(series = Pike.1, length = 12, element = "d18O_oto_cor")
+Pike_year2_d18O_cor <- interpol(series = Pike.2, length = 12, element = "d18O_oto_cor")
+Pike_year3_d18O_cor <- interpol(series = Pike.3, length = 12, element = "d18O_oto_cor")
+Pike_year4_d18O_cor <- interpol(series = Pike.4, length = 12, element = "d18O_oto_cor")
+Pike_year5_d18O_cor <- interpol(series = Pike.5, length = 12, element = "d18O_oto_cor")
+Pike_year6_d18O_cor <- interpol(series = Pike.6, length = 12, element = "d18O_oto_cor")
+Pike_year7_d18O_cor <- interpol(series = Pike.7, length = 12, element = "d18O_oto_cor")
+Pike_year8_d18O_cor <- interpol(series = Pike.8, length = 12, element = "d18O_oto_cor")
+Pike_year9_d18O_cor <- interpol(series = Pike.9, length = 12, element = "d18O_oto_cor")
+Pike_year10_d18O_cor <- interpol(series = Pike.10, length = 12, element = "d18O_oto_cor")
+
+Pike_year1_d18O$year <- 1
+Pike_year2_d18O$year <- 2
+Pike_year3_d18O$year <- 3
+Pike_year4_d18O$year <- 4
+Pike_year5_d18O$year <- 5
+Pike_year6_d18O$year <- 6
+Pike_year7_d18O$year <- 7
+Pike_year8_d18O$year <- 8
+Pike_year9_d18O$year <- 9
+Pike_year10_d18O$year <- 10
+
+Pike_year1_d18O_cor$year <- 1
+Pike_year2_d18O_cor$year <- 2
+Pike_year3_d18O_cor$year <- 3
+Pike_year4_d18O_cor$year <- 4
+Pike_year5_d18O_cor$year <- 5
+Pike_year6_d18O_cor$year <- 6
+Pike_year7_d18O_cor$year <- 7
+Pike_year8_d18O_cor$year <- 8
+Pike_year9_d18O_cor$year <- 9
+Pike_year10_d18O_cor$year <- 10
+
+Pikeyears_d18O <- rbind(Pike_year1_d18O, Pike_year2_d18O, Pike_year3_d18O, Pike_year4_d18O, Pike_year5_d18O, 
+                        Pike_year6_d18O, Pike_year7_d18O, Pike_year8_d18O, Pike_year9_d18O, Pike_year10_d18O)
+
+Pikeyears_d18O_cor <- rbind(Pike_year1_d18O_cor, Pike_year2_d18O_cor, Pike_year3_d18O_cor, Pike_year4_d18O_cor, Pike_year5_d18O_cor, 
+                        Pike_year6_d18O_cor, Pike_year7_d18O_cor, Pike_year8_d18O_cor, Pike_year9_d18O_cor, Pike_year10_d18O_cor)
+
+Pikeyears_all <- Pikeyears_d18O%>%
+  left_join(Pikeyears_d18O_cor, by = c("fishID", "month", "year"))%>%
+  transmute(fishID, year, month,
+            d18O = value.x,
+            d18O_cor = value.y)
+
+Pikeyears2 <- Pike2%>%
+  inner_join(Pikeyears_all, by = c("fishID", "year"))%>%
+  transmute(fishID=fishID,
+            capt_date=capt_date,
+            area=case_when(area == "anadromous" ~ "freshwater",
+                           TRUE ~ area),
+            age=age,
+            cohort=cohort,
+            lifeyear=lifeyear,
+            month=month,
+            year=lifeyear,
+            d18O=d18O,
+            d18O_cor = d18O_cor,
+            date=as.Date(paste0(lifeyear,"-",month,"-","01")))%>%
+  distinct()
+
+Pikeyears3 <- Pikeyears2%>%
+  group_by(area, date)%>%
+  summarise(cohort=cohort,
+            month=month,
+            d18O=mean(d18O),
+            d18O_cor=mean(d18O_cor))%>%
+  distinct()
+
+fwrite(Pikeyears3, file = "Data/Pike-d18O-years-interpolated.csv")
+```
+
+```{r d18O modelling figures, include=FALSE, eval=FALSE}
+#Plotting temperature, predicted otolith d18O and observed otolith d18O
+rm(list = ls())
+
+#read in data
+Bodden_iso_oto <- fread("Data/Bodden-isotope-predictions.csv")
+Fresh_iso_oto <- fread("Data/Freshwater-isotope-predictions.csv")
+Pikeyears <- fread("Data/Pike-d18O-years-interpolated.csv")
+
+#plot temperature
+Temperature <- ggplot()+
+  geom_line(data = Bodden_iso_oto, aes(x = date, y = WT, color=area), size = 1)+
+  geom_line(data = Fresh_iso_oto, aes(x = date, y = WT, color=area), size = 1)+
+  geom_vline(xintercept = as.Date(c("2008-12-01","2009-12-01","2010-12-01","2011-12-01","2012-12-01","2013-12-01","2014-12-01","2015-12-01",
+                          "2016-12-01","2017-12-01","2018-12-01","2019-12-01","2020-12-01","2021-12-01","2022-12-01")), alpha = .5,
+             linetype = "dotted")+
+  scale_fill_manual(breaks = c("Lagoon", "Tributary"), 
+                     values = c("#7570B3","#66A61E"), 
+                     labels = c("Lagoon prediction", "Tributary prediction"))+
+  scale_color_manual(breaks = c("GB", "NRB", "WRB", "Tributary"),
+                     values = c("#C5D86D","#AF3800","#004643","#00BFB2"))+
+  scale_x_date(breaks = as.Date(c("2008-01-01","2009-01-01","2010-01-01","2011-01-01","2012-01-01","2013-01-01","2014-01-01","2015-01-01",
+                          "2016-01-01","2017-01-01","2018-01-01","2019-01-01","2020-01-01","2021-01-01","2022-01-01")),
+               labels = c(as.character(c(2008:2022))),
+               limits = c(min(Pikeyears$date), max(Pikeyears$date)))+
+  labs(y = "Water temperature (°C)",
+       color = "area: ")+
+  theme_classic()+theme(panel.grid.major.y = element_line(size = .3),
+        panel.border = element_rect(fill = NA, linewidth = .3),
+        plot.margin = margin(c(20,10,1,1)),
+        axis.text.x = element_text(color = "transparent", size = 15, angle = 90),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.ticks.x = element_line(colour = "transparent"),
+        axis.ticks.y = element_line(linewidth = 0.3),
+        axis.ticks.length.y = unit(0.05, "cm"),
+        axis.title.x = element_text(size = 15, color = "transparent"),
+        axis.title.y = element_text(size = 15, color = "black"),
+        axis.line = element_line(linewidth = 0.3),
+        legend.text = element_text(size = 15, color = "black"),
+        legend.title = element_text(size = 15, color = "black"),
+        legend.position = "bottom")
+
+#Plot isotope predictions
+Isotopes <- ggplot()+
+  geom_line(data = Bodden_iso_oto, aes(x = date, y = d18O, color="d18O"), size = 1)+
+  geom_ribbon(data = Bodden_iso_oto, aes(x = date, ymin = lower.Pat, ymax = upper.Pat, fill = "Lagoon"), alpha = 0.3)+
+  geom_ribbon(data = Bodden_iso_oto, aes(x = date, ymin = lower.Gef, ymax = upper.Gef, fill = "Lagoon"), alpha = 0.3)+
+  geom_ribbon(data = Fresh_iso_oto, aes(x = date, ymin = lower.Pat, ymax = upper.Pat, fill = "Tributary"), alpha = 0.3)+
+  geom_ribbon(data = Fresh_iso_oto, aes(x = date, ymin = lower.Gef, ymax = upper.Gef, fill = "Tributary"), alpha = 0.3)+
+  geom_vline(xintercept = as.Date(c("2008-12-01","2009-12-01","2010-12-01","2011-12-01","2012-12-01","2013-12-01","2014-12-01","2015-12-01",
+                          "2016-12-01","2017-12-01","2018-12-01","2019-12-01","2020-12-01","2021-12-01","2022-12-01")), alpha = .5,
+             linetype = "dotted")+
+  scale_fill_manual(breaks = c("Lagoon", "Tributary"), 
+                     values = c("#7570B3","#66A61E"), 
+                     labels = c("Lagoon prediction", "Tributary prediction"))+
+  scale_color_manual(breaks = c("d18O"),
+                     values = c("black"),
+                     labels=(""))+
+  scale_x_date(breaks = as.Date(c("2008-01-01","2009-01-01","2010-01-01","2011-01-01","2012-01-01","2013-01-01","2014-01-01","2015-01-01",
+                          "2016-01-01","2017-01-01","2018-01-01","2019-01-01","2020-01-01","2021-01-01","2022-01-01")),
+               labels = c(as.character(c(2008:2022))),
+               limits = c(min(Pikeyears$date), max(Pikeyears$date)))+
+  scale_y_continuous(limits = c(-9, -1.5),
+                     breaks = c(-9,-8,-7,-6,-5,-4,-3,-2))+
+  labs(y = expression(delta^18*"O"["Water/Otolith"]~("VPDB \u2030")),
+       fill = expression("predicted"~delta^18*"O"["otolith"]~("VPDB \u2030")~":"),
+       color=expression("interpolated"~delta^18*"O"["Water"]~("VPDB \u2030")~":"))+
+  theme_classic()+theme(panel.grid.major.y = element_line(size = .3),
+        panel.border = element_rect(fill = NA, size = .3),
+        plot.margin = margin(c(20,10,1,1)),
+        axis.text.x = element_text(color = "transparent", size = 15, angle = 90),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.ticks.x = element_line(colour = "transparent"),
+        axis.ticks.y = element_line(size = 0.3),
+        axis.ticks.length.y = unit(0.05, "cm"),
+        axis.title.x = element_text(size = 15, color = "transparent"),
+        axis.title.y = element_text(size = 15, color = "black"),
+        axis.line = element_line(size = 0.3),
+        legend.text = element_text(size = 15, color = "black"),
+        legend.title = element_text(size = 15, color = "black"),
+        legend.position = "bottom")+
+  guides(color=guide_legend(nrow = 2, keyheight = unit(.01, "cm"), keywidth = unit(1, "cm")),
+         fill=guide_legend(nrow = 2))
+
+#Plot pike values
+Obs.vs.pred <- ggplot()+
+  geom_line(data=Pikeyears, aes(date, d18O, color=area, lty = "d18O"), size = 1)+
+  geom_line(data=Pikeyears, aes(date, d18O_cor, color=area, lty = "d18O_cor"), size = 1)+
+  geom_vline(xintercept = as.Date(c("2008-12-01","2009-12-01","2010-12-01","2011-12-01","2012-12-01","2013-12-01","2014-12-01","2015-12-01",
+                          "2016-12-01","2017-12-01","2018-12-01","2019-12-01","2020-12-01","2021-12-01","2022-12-01")), alpha = .5,
+             linetype = "dotted")+
+  scale_fill_manual(breaks = c("Lagoon", "Tributary"), 
+                     values = c("#7570B3","#66A61E"), 
+                     labels = c("Lagoon prediction", "Tributary prediction"))+
+  scale_color_manual(breaks = c("Lagoon","freshwater"),
+                     values = c("#7570B3", "#66A61E"),
+                     labels = c("Lagoon", "Tributary"))+
+  scale_linetype_manual(breaks = c("d18O", "d18O_cor"),
+                        values = c("solid", "dotted"),
+                        labels = c("measured", "corrected"))+
+  scale_x_date(breaks = as.Date(c("2008-06-01", "2008-12-01","2009-12-01", "2009-06-01","2010-12-01", 
+                                  "2010-06-01","2011-12-01", "2011-06-01","2012-12-01","2012-06-01",
+                                  "2013-12-01", "2013-06-01","2014-12-01", "2014-06-01","2015-12-01", 
+                                  "2015-06-01", "2016-12-01", "2016-06-01","2017-12-01", "2017-06-01",
+                                  "2018-12-01", "2018-06-01","2019-12-01", "2019-06-01","2020-12-01", 
+                                  "2020-06-01","2021-12-01","2021-06-01","2022-12-01", "2022-06-01")),
+               labels = c("Summer 08", "Winter 08","Winter 09", "Summer 09","Winter 10", "Summer 10",
+                          "Winter 11", "Summer 11","Winter 12", "Summer 12","Winter 13", "Summer 13",
+                          "Winter 14", "Summer 14","Winter 15", "Summer 15", "Winter 16", "Summer 16",
+                          "Winter 17", "Summer 17","Winter 18", "Summer 18","Winter 19", "Summer 19",
+                          "Winter 20", "Summer 20","Winter 21", "Summer 21","Winter 22", "Summer 22"),
+               limits = c(min(Pikeyears$date), max(Pikeyears$date)))+
+  scale_y_continuous(limits = c(-9, -1.5),
+                     breaks = c(-9,-8,-7,-6,-5,-4,-3,-2))+
+  labs(x = "", y = expression(delta^18*"O"["otolith"]~("VPDB \u2030")), 
+       fill = expression("predicted"~delta^18*"O"["otolith"]~("VPDB \u2030")~":"),
+       color="area: ",
+       linetype = "")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(size = .3),
+        panel.border = element_rect(fill = NA, size = .3),
+        plot.margin = margin(c(20,10,1,1)),
+        axis.text.x = element_text(color = "black", size = 15, angle = 90),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.ticks.x = element_line(colour = "black"),
+        axis.ticks.y = element_line(size = 0.3),
+        axis.ticks.length.y = unit(0.05, "cm"),
+        axis.title = element_text(size = 15, color = "black"),
+        axis.line = element_line(size = 0.3),
+        legend.text = element_text(size = 15, color = "black"),
+        legend.title = element_text(size = 15, color = "black"),
+        legend.position = "bottom")
+
+allplot <- align_plots(Temperature, Isotopes, Obs.vs.pred, align = "v")
+
+png(filename = "Figures/Yearly-signal-d18O_adapted.png", width = 7000, height = 9000, res = 600)
+ggarrange(Temperature, Isotopes, Obs.vs.pred, nrow = 3, ncol = 1, labels = c("A)", "B)", "C)"))
+dev.off()
 ```
 
 
