@@ -36,7 +36,7 @@ annu <- read.delim("Data/2021_annuli_with_rad.txt", header = T, stringsAsFactors
 
 
 #load SIMS data
-sims <- fread("Data/Otolith_data_anadromous_2021_clean_core_with_distance_um.csv")
+sims <- fread("Data/Otolith_data_anadromous_2021_clean_core_with_distance_um.csv")#interchange anadromous 2021, with other otolith data files
 names(sims) <- tolower(names(sims))
 
 #inverse order for distances
@@ -191,7 +191,7 @@ for (i in 1:length(IDOto)) {
 }
 
 #save annu as table to change the distances
-fwrite(pike_d18O, "Data/2021_anadromous_data_clean.csv")
+fwrite(pike_d18O, "Data/2021_anadromous_data_clean.csv") #Change name according to which otolith data was loaded
 ```
 
 ```{r join data together, include=FALSE, eval=FALSE}
@@ -572,7 +572,7 @@ d18O <- ggplot(Otodata2[Otodata2$ID!="BH-90910",])+
         legend.key.size = unit(.8,"line"))+
   coord_cartesian(clip = "off")
 
-ggsave("Figures/OH-exploratory-figure.png", d18O, width = 15, height = 10, units = "cm", dpi = 600, bg = "white")
+ggsave("Figures/OH-exploratory-figure.pdf", d18O, width = 15, height = 10, units = "cm", dpi = 600, bg = "white")
 ```
 
 ```{r figures for d18O - OH overlay to EMS scans, include=FALSE, eval=FALSE}
@@ -1021,7 +1021,7 @@ raw_vs_cor <- ggplot(Pike_corrected)+
         legend.title = element_text(size = 10, face = "bold"),
         legend.key.size = unit(1,"line"))
 
-ggsave("Figures/raw_vs_correction.png", raw_vs_cor, width = 15, height = 12, units = "cm", dpi = 600, bg = "white")
+ggsave("Figures/raw_vs_correction.pdf", raw_vs_cor, width = 15, height = 12, units = "cm", dpi = 600, bg = "white")
 ```
 
 ```{r d18O correction single fish, include=FALSE, eval=FALSE}
@@ -1113,7 +1113,7 @@ BH01722 <- ggplot(Pike_corrected[Pike_corrected$ID=="BH-01722",])+
 
 Allplot <- ggarrange(BH01855, BH01588, BH01722, common.legend = T, nrow = 3)
 
-ggsave("Figures/raw-vs-corrected_ind.png", width = 15, height = 30, units = "cm", dpi = 600, bg = "white")
+ggsave("Figures/raw-vs-corrected_ind.pdf", width = 15, height = 30, units = "cm", dpi = 600, bg = "white")
 ```
 
 #Validation of correction
@@ -1540,7 +1540,7 @@ Obs.vs.pred <- ggplot()+
 
 allplot <- align_plots(Temperature, Isotopes, Obs.vs.pred, align = "v")
 
-png(filename = "Figures/Yearly-signal-d18O_adapted.png", width = 7000, height = 9000, res = 600)
+pdf("Figures/Yearly-signal-d18O_adapted.pdf", width = 10, height = 15)
 ggarrange(Temperature, Isotopes, Obs.vs.pred, nrow = 3, ncol = 1, labels = c("A)", "B)", "C)"))
 dev.off()
 ```
